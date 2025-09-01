@@ -64,6 +64,7 @@ application.properties
 *.db
 *.sqlite
 *.h2.db
+data.sql
 
 # 환경 변수 파일
 .env
