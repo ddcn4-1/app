@@ -22,15 +22,6 @@ build/
 *.ipr
 out/
 
-## Eclipse
-.classpath
-.project
-.settings/
-bin/
-
-## VSCode
-.vscode/
-
 # OS 관련
 ## macOS
 .DS_Store
@@ -66,6 +57,8 @@ application-dev.yml
 application-dev.properties
 application-prod.yml
 application-prod.properties
+application.yml
+application.properties
 
 # 데이터베이스 파일
 *.db
