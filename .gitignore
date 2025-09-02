@@ -1,0 +1,83 @@
+# Gradle 관련
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Java 컴파일 파일
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# IDE 관련
+## IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# OS 관련
+## macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+## Windows
+desktop.ini
+
+## Linux
+*~
+
+# 로그 파일
+logs/
+*.log
+log/
+
+# 임시 파일
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Spring Boot 관련
+application-local.yml
+application-local.properties
+application-dev.yml
+application-dev.properties
+application-prod.yml
+application-prod.properties
+application.yml
+application.properties
+
+# 데이터베이스 파일
+*.db
+*.sqlite
+*.h2.db
+data.sql
+
+# 환경 변수 파일
+.env
+.env.local
+
+# Docker 관련 (선택사항)
+docker-compose.override.yml
+
+# 테스트 관련
+test-results/
+/test-output/
+
+# 기타
+*.pid
+*.seed
+*.pid.lock
