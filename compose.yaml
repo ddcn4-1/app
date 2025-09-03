@@ -1,15 +1,35 @@
 services:
   postgres:
-    image: 'postgres:latest'
+    image: 'postgres:15'
+    container_name: ticket-postgres
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+      - POSTGRES_DB=ticket
+      - POSTGRES_USER=ticket
+      - POSTGRES_PASSWORD=ticketpass
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
     ports:
-      - '5432'
-  redis:
-    image: 'redis:latest'
-    ports:
-      - '6379'
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticket -d ticket"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-    
+  redis:
+    image: 'redis:7'
+    container_name: ticket-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
