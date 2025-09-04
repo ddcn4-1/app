@@ -23,7 +23,8 @@ public class PerformanceResponse {
         return PerformanceResponse.builder()
                 .title(performance.getTitle())
                 .venue(performance.getVenue().getVenueName())
-                .theme(performance.getPosterUrl())
+                .theme(performance.getTheme())
+                .posterUrl(performance.getPosterUrl())
                 .price(performance.getBasePrice())
                 .status(performance.getStatus())
                 .build();
