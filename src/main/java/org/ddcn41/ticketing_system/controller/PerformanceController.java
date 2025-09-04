@@ -2,6 +2,7 @@ package org.ddcn41.ticketing_system.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.dto.response.PerformanceResponse;
+import org.ddcn41.ticketing_system.entity.Performance;
 import org.ddcn41.ticketing_system.service.PerformanceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,8 +27,8 @@ public class PerformanceController {
 
     @GetMapping("/{performanceId}")
     public ResponseEntity<PerformanceResponse> getPerformanceById(@PathVariable long performanceId){
-        //구현예정
-        return ResponseEntity.ok().build();
+        Performance performance = performanceService.getPerformanceById(performanceId);
+        return ResponseEntity.ok(PerformanceResponse.from(performance));
     }
 
     @GetMapping("/search")
