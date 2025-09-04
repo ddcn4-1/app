@@ -56,12 +56,14 @@ public class SecurityConfig {
                         // 헬스체크 허용
                         .requestMatchers("/actuator/**").permitAll()
 
-                        // 정적 리소스 허용 (HTML, CSS, JS, 이미지 등)
-                        .requestMatchers("/", "/index.html", "/login.html").permitAll()
+                        // 정적 리소스 및 페이지 라우팅 허용
+                        .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
+                        .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()  // 라우팅 경로 허용
                         .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
 
-                        // 관리자 전용 엔드포인트 (로그인 후 ADMIN 권한 필요)
-                        .requestMatchers("/admin/**").hasRole("ADMIN")
+                        // 관리자 전용 API 엔드포인트 (로그인 후 ADMIN 권한 필요)
+                        .requestMatchers("/admin/auth/**").hasRole("ADMIN")
+                        .requestMatchers("/admin/api/**").hasRole("ADMIN")
 
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()
