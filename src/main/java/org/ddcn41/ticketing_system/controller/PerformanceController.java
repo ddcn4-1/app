@@ -19,8 +19,12 @@ public class PerformanceController {
 
     @GetMapping
     public ResponseEntity<List<PerformanceResponse>> getAllPerformance(){
-        // 구현 예쩡
-        return ResponseEntity.ok().build();
+        List<Performance> performances = performanceService.getAllPerformances();
+        List<PerformanceResponse> responses = performances.stream()
+                .map(PerformanceResponse::from)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(responses);
     }
 
     @GetMapping("/{performanceId}")

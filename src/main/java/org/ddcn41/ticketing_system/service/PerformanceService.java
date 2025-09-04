@@ -22,6 +22,9 @@ public class PerformanceService {
                 .orElseThrow(()-> new EntityNotFoundException("Performance not found with id: "+performanceId));
     }
 
+    public List<Performance> getAllPerformances(){
+        return performanceRepository.findAll();
+    }
 
     public List<Performance> searchPerformances(String title, String venue, Performance.PerformanceStatus status){
         List<Performance> result = performanceRepository.findAll();
