@@ -2,121 +2,233 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Login (JWT)</title>
+    <title>티켓팅 시스템 - 대시보드</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        #out { background: #f8f9fa; padding: 15px; border-radius: 4px; margin-top: 20px; white-space: pre-wrap; }
-        .success { color: #28a745; }
-        .error { color: #dc3545; }
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #007bff; padding-bottom: 15px; margin-bottom: 30px; }
+        .welcome { color: #333; }
+        .logout-btn { background: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }
+        .logout-btn:hover { background: #c82333; }
+        .card { border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin: 20px 0; background: #f8f9fa; }
+        .card h3 { margin-top: 0; color: #007bff; }
+        .btn { display: inline-block; background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; margin: 5px; }
+        .btn:hover { background: #0056b3; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #545b62; }
+        .status { padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .status.logged-out { background: #f8d7da; color: #721c24; }
+        .status.logged-in { background: #d4edda; color: #155724; }
+        .token-info { background: #fff3cd; padding: 10px; border-radius: 4px; margin: 10px 0; font-family: monospace; font-size: 12px; word-break: break-all; }
     </style>
 </head>
 <body>
-<h2>JWT 로그인 테스트</h2>
-
-<div class="form-group">
-    <label>테스트 계정:</label>
-    <p>
-        관리자: admin@ticket.com / password123<br>
-        사용자: user@ticket.com / password123<br>
-        사용자명: testuser / password123
-    </p>
+<div class="header">
+    <h1>티켓팅 시스템 대시보드</h1>
+    <div id="userInfo">
+        <button class="logout-btn" onclick="logout()" id="logoutBtn" style="display: none;">로그아웃</button>
+    </div>
 </div>
 
-<form id="loginForm">
-    <div class="form-group">
-        <label for="usernameOrEmail">이메일 또는 사용자명:</label>
-        <input id="usernameOrEmail" name="usernameOrEmail" value="admin@ticket.com" placeholder="이메일 또는 사용자명 입력">
-    </div>
-    <div class="form-group">
-        <label for="password">비밀번호:</label>
-        <input id="password" name="password" type="password" value="password123" placeholder="비밀번호 입력">
-    </div>
-    <button type="submit">로그인</button>
-</form>
+<div id="loginStatus" class="status logged-out">
+    로그인이 필요합니다.
+</div>
 
-<div id="out"></div>
+<div class="card">
+    <h3>인증 시스템</h3>
+    <p>JWT 기반 로그인/인증 기능</p>
+    <a href="/login" class="btn">로그인하기</a>
+    <a href="/admin/login" class="btn">관리자 로그인</a>
+    <button class="btn btn-secondary" onclick="checkToken()">토큰 상태 확인</button>
+</div>
+
+<div class="card" id="apiTestCard" style="display: none;">
+    <h3>API 테스트</h3>
+    <p>인증이 필요한 API들을 테스트해보세요</p>
+    <button class="btn" onclick="testProtectedAPI()">보호된 API 테스트</button>
+    <button class="btn btn-secondary" onclick="testHealthCheck()">Health Check</button>
+</div>
+
+<div class="card">
+    <h3>시스템 정보</h3>
+    <ul>
+        <li><strong>API 베이스 URL:</strong> http://localhost:8080</li>
+        <li><strong>로그인 엔드포인트:</strong> POST /auth/login</li>
+        <li><strong>로그아웃 엔드포인트:</strong> POST /auth/logout</li>
+    </ul>
+</div>
+
+<div id="results" style="margin-top: 20px;"></div>
 
 <script>
-    const loginForm = document.getElementById('loginForm');
-    const outputDiv = document.getElementById('out');
+    // 페이지 로드 시 토큰 상태 확인
+    window.addEventListener('load', () => {
+        updateLoginStatus();
+    });
 
-    loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
+    function updateLoginStatus() {
+        const token = localStorage.getItem('accessToken');
+        const userType = localStorage.getItem('userType');
+        const loginStatus = document.getElementById('loginStatus');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const loginLink = document.getElementById('loginLink');
+        const apiTestCard = document.getElementById('apiTestCard');
+        const userInfo = document.getElementById('userInfo');
 
-        const usernameOrEmail = document.getElementById('usernameOrEmail').value;
-        const password = document.getElementById('password').value;
+        if (token) {
+            loginStatus.className = 'status logged-in';
+            loginStatus.innerHTML = `
+                    <strong>로그인됨</strong><br>
+                    사용자 유형: ${userType}<br>
+                    토큰 만료까지: ${getTokenTimeLeft(token)}
+                `;
+            logoutBtn.style.display = 'inline-block';
+            loginLink.style.display = 'none';
+            apiTestCard.style.display = 'block';
 
-        outputDiv.innerHTML = '로그인 시도 중...';
+            // 사용자 정보 표시
+            userInfo.innerHTML = `
+                    <span style="margin-right: 15px; color: #28a745;">
+                        ${userType} 로그인됨
+                    </span>
+                    <button class="logout-btn" onclick="logout()">로그아웃</button>
+                `;
+        } else {
+            loginStatus.className = 'status logged-out';
+            loginStatus.innerHTML = '로그인이 필요합니다.';
+            logoutBtn.style.display = 'none';
+            loginLink.style.display = 'inline-block';
+            apiTestCard.style.display = 'none';
+            userInfo.innerHTML = '<a href="/login.html" class="btn">로그인</a>';
+        }
+    }
+
+    function getTokenTimeLeft(token) {
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const exp = payload.exp * 1000;
+            const now = Date.now();
+            const timeLeft = exp - now;
+
+            if (timeLeft <= 0) {
+                return '만료됨';
+            }
+
+            const minutes = Math.floor(timeLeft / (1000 * 60));
+            return `약 ${minutes}분`;
+        } catch (e) {
+            return '알 수 없음';
+        }
+    }
+
+    async function logout() {
+        const token = localStorage.getItem('accessToken');
 
         try {
-            // 로그인 요청
-            const loginResponse = await fetch('/auth/login', {
+            const response = await fetch('/auth/logout', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    usernameOrEmail: usernameOrEmail,
-                    password: password
-                })
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
             });
 
-            if (!loginResponse.ok) {
-                const errorText = await loginResponse.text();
-                outputDiv.innerHTML = `<div class="error">로그인 실패: ${loginResponse.status} - ${errorText}</div>`;
-                return;
-            }
+            const result = await response.json();
 
-            const loginData = await loginResponse.json();
+            // 로컬 스토리지에서 토큰 삭제
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('userType');
 
-            // 로컬 스토리지에 토큰 저장
-            localStorage.setItem('accessToken', loginData.accessToken);
-            localStorage.setItem('userType', loginData.userType);
+            // UI 업데이트
+            updateLoginStatus();
 
-            outputDiv.innerHTML = `<div class="success">
-로그인 성공!
-사용자 유형: ${loginData.userType}
-
-JWT 토큰:
-${loginData.accessToken}
-
-토큰이 localStorage에 저장되었습니다.
-</div>`;
-
-            // Health check 테스트
-            try {
-                const healthResponse = await fetch('/actuator/health', {
-                    headers: { 'Authorization': 'Bearer ' + loginData.accessToken }
-                });
-
-                const healthData = await healthResponse.text();
-                outputDiv.innerHTML += `\n\n=== Health Check 테스트 ===\n상태: ${healthResponse.status}\n응답: ${healthData}`;
-
-            } catch (healthError) {
-                outputDiv.innerHTML += `\n\n=== Health Check 테스트 ===\n오류: ${healthError.message}`;
-            }
+            document.getElementById('results').innerHTML = `
+                    <div class="status logged-out">
+                        <strong>로그아웃 완료:</strong> ${result.message}
+                    </div>
+                `;
 
         } catch (error) {
-            outputDiv.innerHTML = `<div class="error">네트워크 오류: ${error.message}</div>`;
+            console.error('로그아웃 실패:', error);
+            // 에러가 발생해도 클라이언트 토큰은 삭제
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('userType');
+            updateLoginStatus();
         }
-    });
+    }
 
-    // 페이지 로드 시 저장된 토큰 확인
-    window.addEventListener('load', () => {
-        const savedToken = localStorage.getItem('accessToken');
-        const savedUserType = localStorage.getItem('userType');
+    function checkToken() {
+        const token = localStorage.getItem('accessToken');
+        const results = document.getElementById('results');
 
-        if (savedToken) {
-            outputDiv.innerHTML += `<div style="color: #6c757d;">
-저장된 토큰이 있습니다.
-사용자 유형: ${savedUserType}
-토큰: ${savedToken.substring(0, 50)}...
-</div>`;
+        if (token) {
+            results.innerHTML = `
+                    <div class="token-info">
+                        <strong>저장된 JWT 토큰:</strong><br>
+                        ${token}<br><br>
+                        <strong>토큰 길이:</strong> ${token.length}자<br>
+                        <strong>만료 시간:</strong> ${getTokenTimeLeft(token)}
+                    </div>
+                `;
+        } else {
+            results.innerHTML = `
+                    <div class="status logged-out">
+                        저장된 토큰이 없습니다.
+                    </div>
+                `;
         }
-    });
+    }
+
+    async function testProtectedAPI() {
+        const token = localStorage.getItem('accessToken');
+        const results = document.getElementById('results');
+
+        if (!token) {
+            results.innerHTML = '<div class="status logged-out">로그인이 필요합니다.</div>';
+            return;
+        }
+
+        try {
+            const response = await fetch('/actuator/health', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            const data = await response.text();
+            results.innerHTML = `
+                    <div class="status logged-in">
+                        <strong>API 테스트 성공</strong><br>
+                        상태 코드: ${response.status}<br>
+                        응답: ${data}
+                    </div>
+                `;
+        } catch (error) {
+            results.innerHTML = `
+                    <div class="status logged-out">
+                        API 테스트 실패: ${error.message}
+                    </div>
+                `;
+        }
+    }
+
+    async function testHealthCheck() {
+        try {
+            const response = await fetch('/actuator/health');
+            const data = await response.text();
+
+            document.getElementById('results').innerHTML = `
+                    <div class="status logged-in">
+                        <strong>Health Check</strong><br>
+                        상태: ${response.status}<br>
+                        응답: ${data}
+                    </div>
+                `;
+        } catch (error) {
+            document.getElementById('results').innerHTML = `
+                    <div class="status logged-out">
+                        Health Check 실패: ${error.message}
+                    </div>
+                `;
+        }
+    }
 </script>
 </body>
 </html>
