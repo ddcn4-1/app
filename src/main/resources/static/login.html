@@ -2,48 +2,81 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Login (JWT)</title>
+    <title>로그인 - 티켓팅 시스템</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        #out { background: #f8f9fa; padding: 15px; border-radius: 4px; margin-top: 20px; white-space: pre-wrap; }
-        .success { color: #28a745; }
-        .error { color: #dc3545; }
+        body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; background: #f5f5f5; }
+        .login-card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        h2 { text-align: center; color: #333; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
+        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        input:focus { border-color: #007bff; outline: none; }
+        .login-btn { width: 100%; background: #007bff; color: white; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        .login-btn:hover { background: #0056b3; }
+        .login-btn:disabled { background: #6c757d; cursor: not-allowed; }
+        .test-accounts { background: #e9ecef; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+        .test-accounts h4 { margin: 0 0 10px 0; color: #495057; }
+        .result { margin-top: 20px; padding: 15px; border-radius: 6px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .loading { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .back-link { text-align: center; margin-top: 20px; }
+        .back-link a { color: #007bff; text-decoration: none; }
+        .back-link a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
-<h2>JWT 로그인 테스트</h2>
+<div class="login-card">
+    <h2>로그인</h2>
 
-<div class="form-group">
-    <label>테스트 계정:</label>
-    <p>
-        관리자: admin@ticket.com / password123<br>
-        사용자: user@ticket.com / password123<br>
-        사용자명: testuser / password123
-    </p>
+    <div class="test-accounts">
+        <h4>테스트 계정</h4>
+        <strong>관리자:</strong> admin@ticket.com / password123<br>
+        <strong>일반사용자:</strong> user@ticket.com / password123<br>
+        <strong>사용자명:</strong> testuser / password123
+    </div>
+
+    <form id="loginForm">
+        <div class="form-group">
+            <label for="usernameOrEmail">이메일 또는 사용자명</label>
+            <input
+                    id="usernameOrEmail"
+                    name="usernameOrEmail"
+                    value="admin@ticket.com"
+                    placeholder="이메일 또는 사용자명을 입력하세요"
+                    required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">비밀번호</label>
+            <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    value="password123"
+                    placeholder="비밀번호를 입력하세요"
+                    required>
+        </div>
+
+        <button type="submit" class="login-btn" id="loginBtn">로그인</button>
+    </form>
+
+    <div id="result"></div>
+
+    <div class="back-link">
+        <a href="/">← 메인으로 돌아가기</a>
+    </div>
 </div>
-
-<form id="loginForm">
-    <div class="form-group">
-        <label for="usernameOrEmail">이메일 또는 사용자명:</label>
-        <input id="usernameOrEmail" name="usernameOrEmail" value="admin@ticket.com" placeholder="이메일 또는 사용자명 입력">
-    </div>
-    <div class="form-group">
-        <label for="password">비밀번호:</label>
-        <input id="password" name="password" type="password" value="password123" placeholder="비밀번호 입력">
-    </div>
-    <button type="submit">로그인</button>
-</form>
-
-<div id="out"></div>
 
 <script>
     const loginForm = document.getElementById('loginForm');
-    const outputDiv = document.getElementById('out');
+    const resultDiv = document.getElementById('result');
+    const loginBtn = document.getElementById('loginBtn');
+
+    // 이미 로그인된 경우 메인으로 리다이렉트
+    if (localStorage.getItem('accessToken')) {
+        window.location.href = '/';
+    }
 
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -51,11 +84,13 @@
         const usernameOrEmail = document.getElementById('usernameOrEmail').value;
         const password = document.getElementById('password').value;
 
-        outputDiv.innerHTML = '로그인 시도 중...';
+        // 버튼 비활성화 및 로딩 표시
+        loginBtn.disabled = true;
+        loginBtn.textContent = '로그인 중...';
+        resultDiv.innerHTML = '<div class="loading">로그인을 처리하고 있습니다...</div>';
 
         try {
-            // 로그인 요청
-            const loginResponse = await fetch('/auth/login', {
+            const response = await fetch('/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -64,57 +99,47 @@
                 })
             });
 
-            if (!loginResponse.ok) {
-                const errorText = await loginResponse.text();
-                outputDiv.innerHTML = `<div class="error">로그인 실패: ${loginResponse.status} - ${errorText}</div>`;
-                return;
+            if (!response.ok) {
+                throw new Error(`로그인 실패 (${response.status})`);
             }
 
-            const loginData = await loginResponse.json();
+            const data = await response.json();
 
-            // 로컬 스토리지에 토큰 저장
-            localStorage.setItem('accessToken', loginData.accessToken);
-            localStorage.setItem('userType', loginData.userType);
+            // 토큰 저장
+            localStorage.setItem('accessToken', data.accessToken);
+            localStorage.setItem('userType', data.userType);
 
-            outputDiv.innerHTML = `<div class="success">
-로그인 성공!
-사용자 유형: ${loginData.userType}
+            resultDiv.innerHTML = `
+                    <div class="success">
+                        <strong>로그인 성공!</strong><br>
+                        사용자 유형: ${data.userType}<br>
+                        메인 페이지로 이동합니다...
+                    </div>
+                `;
 
-JWT 토큰:
-${loginData.accessToken}
-
-토큰이 localStorage에 저장되었습니다.
-</div>`;
-
-            // Health check 테스트
-            try {
-                const healthResponse = await fetch('/actuator/health', {
-                    headers: { 'Authorization': 'Bearer ' + loginData.accessToken }
-                });
-
-                const healthData = await healthResponse.text();
-                outputDiv.innerHTML += `\n\n=== Health Check 테스트 ===\n상태: ${healthResponse.status}\n응답: ${healthData}`;
-
-            } catch (healthError) {
-                outputDiv.innerHTML += `\n\n=== Health Check 테스트 ===\n오류: ${healthError.message}`;
-            }
+            // 2초 후 메인 페이지로 리다이렉트
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 2000);
 
         } catch (error) {
-            outputDiv.innerHTML = `<div class="error">네트워크 오류: ${error.message}</div>`;
+            resultDiv.innerHTML = `
+                    <div class="error">
+                        <strong>로그인 실패:</strong><br>
+                        ${error.message}
+                    </div>
+                `;
+        } finally {
+            // 버튼 다시 활성화
+            loginBtn.disabled = false;
+            loginBtn.textContent = '로그인';
         }
     });
 
-    // 페이지 로드 시 저장된 토큰 확인
-    window.addEventListener('load', () => {
-        const savedToken = localStorage.getItem('accessToken');
-        const savedUserType = localStorage.getItem('userType');
-
-        if (savedToken) {
-            outputDiv.innerHTML += `<div style="color: #6c757d;">
-저장된 토큰이 있습니다.
-사용자 유형: ${savedUserType}
-토큰: ${savedToken.substring(0, 50)}...
-</div>`;
+    // 엔터키로 로그인
+    document.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            loginForm.dispatchEvent(new Event('submit'));
         }
     });
 </script>
