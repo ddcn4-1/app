@@ -64,9 +64,11 @@ public class SecurityConfig {
                         // 관리자 전용 API 엔드포인트 (로그인 후 ADMIN 권한 필요)
                         .requestMatchers("/admin/auth/**").hasRole("ADMIN")
                         .requestMatchers("/admin/api/**").hasRole("ADMIN")
+                        .requestMatchers("/admin/users/**").hasRole("ADMIN")
 
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()
+
                 );
 
         http.authenticationProvider(authenticationProvider());
