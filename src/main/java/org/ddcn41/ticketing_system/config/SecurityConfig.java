@@ -11,15 +11,19 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public SecurityConfig(CustomUserDetailsService userDetailsService) {
+    public SecurityConfig(CustomUserDetailsService userDetailsService,
+                          JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.userDetailsService = userDetailsService;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
     @Bean
@@ -47,6 +51,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authz -> authz
                         // 인증 관련 엔드포인트 허용
                         .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/admin/auth/login").permitAll()  // 관리자 로그인만 허용
 
                         // 헬스체크 허용
                         .requestMatchers("/actuator/**").permitAll()
@@ -55,11 +60,17 @@ public class SecurityConfig {
                         .requestMatchers("/", "/index.html", "/login.html").permitAll()
                         .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
 
+                        // 관리자 전용 엔드포인트 (로그인 후 ADMIN 권한 필요)
+                        .requestMatchers("/admin/**").hasRole("ADMIN")
+
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()
                 );
 
         http.authenticationProvider(authenticationProvider());
+
+        // JWT 필터를 UsernamePasswordAuthenticationFilter 이전에 추가
+        http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
