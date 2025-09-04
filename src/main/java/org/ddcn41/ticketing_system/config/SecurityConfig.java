@@ -66,6 +66,12 @@ public class SecurityConfig {
                         .requestMatchers("/admin/api/**").hasRole("ADMIN")
                         .requestMatchers("/admin/users/**").hasRole("ADMIN")
 
+
+                        // 공연조회 API 허용
+                        .requestMatchers("/api/v1/performances/**").permitAll()
+                        // 테스트용 공연장 조회 API
+                        .requestMatchers("/api/venues").permitAll()
+
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()
 
