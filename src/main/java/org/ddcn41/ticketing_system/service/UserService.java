@@ -28,7 +28,10 @@ public class UserService {
     public UserDto createUser(UserDto userDto) {
         User user = User.builder()
                 .username(userDto.getUsername())
+                .email(userDto.getEmail())
+                .name(userDto.getName())
                 .passwordHash(userDto.getPasswordHash())
+                .phone(userDto.getPhone())
                 .role(userDto.getRole())
                 .build();
 
@@ -86,7 +89,10 @@ public class UserService {
         return UserDto.builder()
                 .userId(user.getUserId())
                 .username(user.getUsername())
+                .email(user.getEmail())
+                .name(user.getName())
                 .passwordHash(user.getPasswordHash())
+                .phone(user.getPhone())
                 .role(user.getRole())
                 .build();
     }

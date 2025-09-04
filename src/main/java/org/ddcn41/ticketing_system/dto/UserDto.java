@@ -13,8 +13,9 @@ import org.ddcn41.ticketing_system.entity.User;
 public class UserDto {
     private Long userId;
     private String username;
+    private String email;
+    private String name;
     private String passwordHash;
+    private String phone;
     private User.Role role;
-
-    // TODO: 이후 필요에 따라 이메일, 전화번호 등 개인정보 추가
 }
