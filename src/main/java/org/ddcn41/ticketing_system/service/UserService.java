@@ -1,17 +1,50 @@
 package org.ddcn41.ticketing_system.service;
 
+import lombok.RequiredArgsConstructor;
+import org.ddcn41.ticketing_system.dto.UserDto;
 import org.ddcn41.ticketing_system.entity.User;
 import org.ddcn41.ticketing_system.repository.UserRepository;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
+@RequiredArgsConstructor
 public class UserService {
 
     private final UserRepository userRepository;
 
-    public UserService(UserRepository userRepository) {
-        this.userRepository = userRepository;
+    //  모든 유저 조회
+    public List<UserDto> getAllUsers() {
+        return userRepository.findAll().stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+
+    // 유저 생성
+    public UserDto createUser(UserDto userDto) {
+        User user = User.builder()
+                .username(userDto.getUsername())
+                .email(userDto.getEmail())
+                .name(userDto.getName())
+                .passwordHash(userDto.getPasswordHash())
+                .phone(userDto.getPhone())
+                .role(userDto.getRole())
+                .build();
+
+        User savedUser = userRepository.save(user);
+        return convertToDto(savedUser);
+    }
+
+    // 유저 삭제
+    public void deleteUser(Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new RuntimeException("User not found with id: " + userId);
+        }
+        userRepository.deleteById(userId);
     }
 
     public String resolveUsernameFromEmailOrUsername(String usernameOrEmail) {
@@ -50,5 +83,17 @@ public class UserService {
     public User findByEmail(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("해당 이메일의 사용자를 찾을 수 없습니다: " + email));
+    }
+
+    private UserDto convertToDto(User user) {
+        return UserDto.builder()
+                .userId(user.getUserId())
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .name(user.getName())
+                .passwordHash(user.getPasswordHash())
+                .phone(user.getPhone())
+                .role(user.getRole())
+                .build();
     }
 }
