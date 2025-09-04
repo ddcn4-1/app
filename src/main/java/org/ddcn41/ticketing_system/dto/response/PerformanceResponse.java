@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.dto;
+package org.ddcn41.ticketing_system.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,5 +9,5 @@ import lombok.NoArgsConstructor;
 @Getter
 @AllArgsConstructor
 @NoArgsConstructor
-public class PerformanceDtos {
+public class PerformanceResponse {
 }
