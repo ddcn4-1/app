@@ -55,8 +55,12 @@ public class SecurityConfig {
                         .requestMatchers("/", "/index.html", "/login.html").permitAll()
                         .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
 
+                        // User API 허용
+                        .requestMatchers("/admin/users/**").permitAll()
+
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()
+
                 );
 
         http.authenticationProvider(authenticationProvider());
