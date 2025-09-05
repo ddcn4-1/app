@@ -5,15 +5,17 @@ import jakarta.validation.Valid;
 import org.ddcn41.ticketing_system.dto.AuthDtos.AuthResponse;
 import org.ddcn41.ticketing_system.dto.AuthDtos.LoginRequest;
 import org.ddcn41.ticketing_system.config.JwtUtil;
+import org.ddcn41.ticketing_system.dto.response.ApiResponse;
+import org.ddcn41.ticketing_system.dto.response.LogoutResponse;
+import org.ddcn41.ticketing_system.service.AuthService;
 import org.ddcn41.ticketing_system.service.UserService;
+import org.ddcn41.ticketing_system.util.TokenExtractor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
@@ -22,11 +24,15 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
     private final UserService userService;
+    private final AuthService authService;
+    private final TokenExtractor tokenExtractor;
 
-    public AuthController(AuthenticationManager authenticationManager, JwtUtil jwtUtil, UserService userService) {
+    public AuthController(AuthenticationManager authenticationManager, JwtUtil jwtUtil, UserService userService, AuthService authService, TokenExtractor tokenExtractor) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
+        this.authService = authService;
+        this.tokenExtractor = tokenExtractor;
     }
 
     /**
@@ -51,41 +57,16 @@ public class AuthController {
      * 일반 사용자 로그아웃
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(HttpServletRequest request, Authentication authentication) {
+    public ResponseEntity<ApiResponse<LogoutResponse>> logout(
+            HttpServletRequest request,
+            Authentication authentication) {
+
         String username = authentication != null ? authentication.getName() : "anonymous";
+        String token = tokenExtractor.extractTokenFromRequest(request);
 
-        // Authorization 헤더에서 토큰 추출
-        String authHeader = request.getHeader("Authorization");
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
+        LogoutResponse logoutData = authService.processLogout(token, username);
+        ApiResponse<LogoutResponse> response = ApiResponse.success("로그아웃 완료", logoutData);
 
-            try {
-                // 토큰 만료 시간 가져오기
-                long expirationTime = jwtUtil.extractClaims(token).getExpiration().getTime();
-                long timeLeft = (expirationTime - System.currentTimeMillis()) / 1000 / 60; // 분 단위
-
-                return ResponseEntity.ok(Map.of(
-                        "message", "로그아웃 완료",
-                        "username", username,
-                        "tokenTimeLeft", timeLeft + "분",
-                        "timestamp", LocalDateTime.now(),
-                        "success", true
-                ));
-            } catch (Exception e) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "error", "토큰 처리 중 오류 발생",
-                        "message", e.getMessage(),
-                        "username", username,
-                        "success", false
-                ));
-            }
-        }
-
-        return ResponseEntity.ok(Map.of(
-                "message", "로그아웃 완료",
-                "username", username,
-                "timestamp", LocalDateTime.now(),
-                "success", true
-        ));
+        return ResponseEntity.ok(response);
     }
 }
