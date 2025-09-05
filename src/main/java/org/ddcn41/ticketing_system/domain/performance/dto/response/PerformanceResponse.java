@@ -1,9 +1,9 @@
-package org.ddcn41.ticketing_system.dto.response;
+package org.ddcn41.ticketing_system.domain.performance.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
-import org.ddcn41.ticketing_system.entity.Performance;
+import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 
 import java.math.BigDecimal;
 

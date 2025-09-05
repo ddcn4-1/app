@@ -1,9 +1,9 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.venue.service;
 
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.dto.VenueDto;
-import org.ddcn41.ticketing_system.entity.Venue;
-import org.ddcn41.ticketing_system.repository.VenueRepository;
+import org.ddcn41.ticketing_system.domain.venue.dto.VenueDto;
+import org.ddcn41.ticketing_system.domain.venue.entity.Venue;
+import org.ddcn41.ticketing_system.domain.venue.repository.VenueRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

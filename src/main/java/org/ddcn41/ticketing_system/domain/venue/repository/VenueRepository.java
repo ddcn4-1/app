@@ -1,6 +1,6 @@
-package org.ddcn41.ticketing_system.repository;
+package org.ddcn41.ticketing_system.domain.venue.repository;
 
-import org.ddcn41.ticketing_system.entity.Venue;
+import org.ddcn41.ticketing_system.domain.venue.entity.Venue;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

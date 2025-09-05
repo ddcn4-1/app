@@ -1,6 +1,8 @@
 package org.ddcn41.ticketing_system.service;
 
 import lombok.RequiredArgsConstructor;
+import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
+import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceScheduleRepository;
 import org.ddcn41.ticketing_system.dto.*;
 import org.ddcn41.ticketing_system.dto.request.CancelBookingRequestDto;
 import org.ddcn41.ticketing_system.dto.request.CreateBookingRequestDto;

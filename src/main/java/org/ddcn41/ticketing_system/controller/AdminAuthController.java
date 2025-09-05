@@ -4,7 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.ddcn41.ticketing_system.dto.AuthDtos.AuthResponse;
 import org.ddcn41.ticketing_system.dto.AuthDtos.LoginRequest;
-import org.ddcn41.ticketing_system.config.JwtUtil;
+import org.ddcn41.ticketing_system.global.config.JwtUtil;
 import org.ddcn41.ticketing_system.entity.User;
 import org.ddcn41.ticketing_system.service.UserService;
 import org.springframework.http.ResponseEntity;

@@ -1,9 +1,9 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.performance.service;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.entity.Performance;
-import org.ddcn41.ticketing_system.repository.PerformanceRepository;
+import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
+import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

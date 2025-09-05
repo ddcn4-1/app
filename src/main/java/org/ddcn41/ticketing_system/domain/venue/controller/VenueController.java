@@ -1,8 +1,8 @@
-package org.ddcn41.ticketing_system.controller;
+package org.ddcn41.ticketing_system.domain.venue.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.dto.VenueDto;
-import org.ddcn41.ticketing_system.service.VenueService;
+import org.ddcn41.ticketing_system.domain.venue.dto.VenueDto;
+import org.ddcn41.ticketing_system.domain.venue.service.VenueService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

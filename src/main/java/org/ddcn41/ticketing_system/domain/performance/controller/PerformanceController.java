@@ -1,9 +1,9 @@
-package org.ddcn41.ticketing_system.controller;
+package org.ddcn41.ticketing_system.domain.performance.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.dto.response.PerformanceResponse;
-import org.ddcn41.ticketing_system.entity.Performance;
-import org.ddcn41.ticketing_system.service.PerformanceService;
+import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceResponse;
+import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
+import org.ddcn41.ticketing_system.domain.performance.service.PerformanceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
