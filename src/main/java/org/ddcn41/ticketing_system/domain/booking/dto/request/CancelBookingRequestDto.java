@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.dto.request;
+package org.ddcn41.ticketing_system.domain.booking.dto.request;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,4 +12,3 @@ import lombok.NoArgsConstructor;
 public class CancelBookingRequestDto {
     private String reason;
 }
-

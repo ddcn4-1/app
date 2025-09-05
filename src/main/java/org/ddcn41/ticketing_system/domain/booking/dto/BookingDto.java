@@ -1,20 +1,18 @@
-package org.ddcn41.ticketing_system.dto.response;
+package org.ddcn41.ticketing_system.domain.booking.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.ddcn41.ticketing_system.dto.BookingSeatDto;
 import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.OffsetDateTime;
-import java.util.List;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class GetBookingDetail200ResponseDto {
+public class BookingDto {
     private Long bookingId;
     private String bookingNumber;
     private Long userId;
@@ -36,7 +34,4 @@ public class GetBookingDetail200ResponseDto {
     private OffsetDateTime createdAt;
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
     private OffsetDateTime updatedAt;
-
-    private List<BookingSeatDto> seats;
 }
-

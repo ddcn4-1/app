@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.dto.response;
+package org.ddcn41.ticketing_system.domain.booking.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,4 +22,3 @@ public class CancelBooking200ResponseDto {
 
     private Double refundAmount;
 }
-

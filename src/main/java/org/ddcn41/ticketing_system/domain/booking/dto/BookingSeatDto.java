@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.dto;
+package org.ddcn41.ticketing_system.domain.booking.dto;
 
 import lombok.*;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -19,4 +19,3 @@ public class BookingSeatDto {
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
     private OffsetDateTime createdAt;
 }
-

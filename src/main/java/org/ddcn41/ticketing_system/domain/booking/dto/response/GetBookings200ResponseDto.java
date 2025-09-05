@@ -1,10 +1,10 @@
-package org.ddcn41.ticketing_system.dto.response;
+package org.ddcn41.ticketing_system.domain.booking.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.ddcn41.ticketing_system.dto.BookingDto;
+import org.ddcn41.ticketing_system.domain.booking.dto.BookingDto;
 
 import java.util.List;
 
@@ -17,4 +17,3 @@ public class GetBookings200ResponseDto {
     private Integer total;
     private Integer page;
 }
-

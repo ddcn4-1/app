@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.dto.request;
+package org.ddcn41.ticketing_system.domain.booking.dto.request;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -25,4 +25,3 @@ public class CreateBookingRequestDto {
 
     private String queueToken;
 }
-

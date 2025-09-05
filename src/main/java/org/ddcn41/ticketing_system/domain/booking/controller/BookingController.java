@@ -1,14 +1,14 @@
-package org.ddcn41.ticketing_system.controller;
+package org.ddcn41.ticketing_system.domain.booking.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.dto.request.CancelBookingRequestDto;
-import org.ddcn41.ticketing_system.dto.request.CreateBookingRequestDto;
-import org.ddcn41.ticketing_system.dto.response.CancelBooking200ResponseDto;
-import org.ddcn41.ticketing_system.dto.response.CreateBookingResponseDto;
-import org.ddcn41.ticketing_system.dto.response.GetBookingDetail200ResponseDto;
-import org.ddcn41.ticketing_system.dto.response.GetBookings200ResponseDto;
-import org.ddcn41.ticketing_system.service.BookingService;
+import org.ddcn41.ticketing_system.domain.booking.dto.request.CancelBookingRequestDto;
+import org.ddcn41.ticketing_system.domain.booking.dto.request.CreateBookingRequestDto;
+import org.ddcn41.ticketing_system.domain.booking.dto.response.CancelBooking200ResponseDto;
+import org.ddcn41.ticketing_system.domain.booking.dto.response.CreateBookingResponseDto;
+import org.ddcn41.ticketing_system.domain.booking.dto.response.GetBookingDetail200ResponseDto;
+import org.ddcn41.ticketing_system.domain.booking.dto.response.GetBookings200ResponseDto;
+import org.ddcn41.ticketing_system.domain.booking.service.BookingService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;

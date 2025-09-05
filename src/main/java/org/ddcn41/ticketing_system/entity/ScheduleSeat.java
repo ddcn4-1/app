@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
+import org.ddcn41.ticketing_system.domain.booking.entity.BookingSeat;
 import org.ddcn41.ticketing_system.domain.venue.entity.VenueSeat;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
