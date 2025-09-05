@@ -1,15 +1,62 @@
 package org.ddcn41.ticketing_system.service;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 @Service
-@Slf4j
 @RequiredArgsConstructor
 public class AuthAuditService {
     private final AuditEventRepository auditEventRepository;
 
+    // 로그인 성공 로그
+    public void logLoginSuccess(String username) {
+        Map<String, Object> data = createAuditData(username, "Successful login");
+        AuditEvent auditEvent = new AuditEvent(username, "LOGIN_SUCCESS", data);
+        auditEventRepository.add(auditEvent);
+    }
 
+    // 로그인 실패 로그
+    public void logLoginFailure(String username, String errorMessage) {
+        Map<String, Object> data = createAuditData(username, "Login failed: " + errorMessage);
+        AuditEvent auditEvent = new AuditEvent(username, "LOGIN_FAILURE", data);
+        auditEventRepository.add(auditEvent);
+    }
+
+    // 로그아웃 로그
+    public void logLogout(String username) {
+        Map<String, Object> data = createAuditData(username, "User logged out");
+        AuditEvent auditEvent = new AuditEvent(username, "LOGOUT", data);
+        auditEventRepository.add(auditEvent);
+    }
+
+    // 모든 인증 이벤트 조회
+    public List<AuditEvent> getAuthEvents() {
+        return auditEventRepository.find(null, null, null);
+    }
+
+    // 최근 활동 조회
+    public List<AuditEvent> getRecentAuthEvents(int limit) {
+        return getAuthEvents().stream()
+                .sorted((a, b) -> b.getTimestamp().compareTo(a.getTimestamp()))
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+
+    // Audit Data 생성
+    private Map<String, Object> createAuditData(String username, String details) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("username", username);
+        data.put("timestamp", Instant.now());
+        data.put("details", details);
+        return data;
+    }
 }
