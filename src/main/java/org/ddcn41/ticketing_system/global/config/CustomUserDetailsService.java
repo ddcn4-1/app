@@ -1,7 +1,7 @@
 package org.ddcn41.ticketing_system.global.config;
 
-import org.ddcn41.ticketing_system.entity.User;
-import org.ddcn41.ticketing_system.repository.UserRepository;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
+import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;

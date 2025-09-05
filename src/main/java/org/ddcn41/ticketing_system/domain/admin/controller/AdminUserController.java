@@ -1,8 +1,8 @@
-package org.ddcn41.ticketing_system.controller;
+package org.ddcn41.ticketing_system.domain.admin.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.dto.UserDto;
-import org.ddcn41.ticketing_system.service.UserService;
+import org.ddcn41.ticketing_system.domain.user.dto.UserDto;
+import org.ddcn41.ticketing_system.domain.user.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;

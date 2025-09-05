@@ -1,10 +1,9 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.user.service;
 
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.dto.UserDto;
-import org.ddcn41.ticketing_system.entity.User;
-import org.ddcn41.ticketing_system.repository.UserRepository;
-import org.springframework.security.access.prepost.PreAuthorize;
+import org.ddcn41.ticketing_system.domain.user.dto.UserDto;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
+import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 

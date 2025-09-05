@@ -8,7 +8,7 @@ import org.ddcn41.ticketing_system.global.config.JwtUtil;
 import org.ddcn41.ticketing_system.dto.response.ApiResponse;
 import org.ddcn41.ticketing_system.dto.response.LogoutResponse;
 import org.ddcn41.ticketing_system.service.AuthService;
-import org.ddcn41.ticketing_system.service.UserService;
+import org.ddcn41.ticketing_system.domain.user.service.UserService;
 import org.ddcn41.ticketing_system.global.util.TokenExtractor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;

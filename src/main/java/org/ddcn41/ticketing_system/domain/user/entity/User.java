@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.entity;
+package org.ddcn41.ticketing_system.domain.user.entity;
 
 import jakarta.persistence.*;
 import jakarta.persistence.Table;
@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking;
+import org.ddcn41.ticketing_system.entity.SeatLock;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 

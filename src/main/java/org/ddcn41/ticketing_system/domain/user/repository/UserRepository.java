@@ -1,8 +1,8 @@
-package org.ddcn41.ticketing_system.repository;
+package org.ddcn41.ticketing_system.domain.user.repository;
 
 import java.util.Optional;
 
-import org.ddcn41.ticketing_system.entity.User;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
