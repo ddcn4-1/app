@@ -10,7 +10,6 @@ import org.ddcn41.ticketing_system.dto.response.GetBookingDetail200ResponseDto;
 import org.ddcn41.ticketing_system.dto.response.GetBookings200ResponseDto;
 import org.ddcn41.ticketing_system.entity.*;
 import org.ddcn41.ticketing_system.entity.Booking.BookingStatus;
-import org.ddcn41.ticketing_system.entity.ScheduleSeat.SeatStatus;
 import org.ddcn41.ticketing_system.repository.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -37,6 +36,8 @@ public class BookingService {
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final UserRepository userRepository;
 
+    private final SeatService seatService;
+
     @Transactional
     public CreateBookingResponseDto createBooking(String username, CreateBookingRequestDto req) {
         User user = userRepository.findByUsername(username)
@@ -45,14 +46,23 @@ public class BookingService {
         PerformanceSchedule schedule = scheduleRepository.findById(req.getScheduleId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
 
-        List<ScheduleSeat> seats = scheduleSeatRepository.findBySchedule_ScheduleIdAndSeatIdIn(req.getScheduleId(), req.getSeatIds());
-        if (seats.size() != req.getSeatIds().size()) {
-            throw new ResponseStatusException(BAD_REQUEST, "일부 좌석을 찾을 수 없습니다");
+        //좌석 가용성 확인 (SeatService에 위임)
+        boolean seatsAvailable = seatService.areSeatsAvailable(req.getSeatIds());
+        if (!seatsAvailable) {
+            throw new ResponseStatusException(BAD_REQUEST, "선택한 좌석이 예약 불가능합니다");
         }
 
-        // 좌석 가용성 체크
-        if (seats.stream().anyMatch(s -> s.getStatus() != SeatStatus.AVAILABLE)) {
-            throw new ResponseStatusException(BAD_REQUEST, "이미 예약되었거나 잠긴 좌석이 포함되어 있습니다");
+        // 좌석 락
+        var lockResponse = seatService.lockSeats(req.getSeatIds(), user.getUserId(), req.getQueueToken());
+        if (!lockResponse.isSuccess()) {
+            throw new ResponseStatusException(BAD_REQUEST, lockResponse.getMessage());
+        }
+
+        List<ScheduleSeat> seats = scheduleSeatRepository.findAllById(req.getSeatIds());
+        if (seats.size() != req.getSeatIds().size()) {
+            // 락은 성공했지만 좌석 정보 조회 실패 - 락 해제 후 에러
+            seatService.releaseSeats(req.getSeatIds(), user.getUserId(), req.getQueueToken());
+            throw new ResponseStatusException(BAD_REQUEST, "일부 좌석 정보를 조회할 수 없습니다");
         }
 
         BigDecimal total = seats.stream()
@@ -67,30 +77,58 @@ public class BookingService {
                 .schedule(schedule)
                 .seatCount(seats.size())
                 .totalAmount(total)
-                .status(BookingStatus.CONFIRMED)
+                .status(BookingStatus.PENDING) // 결제 전 PENDING
+                .expiresAt(lockResponse.getExpiresAt()) // 락 만료 시간 동일
                 .build();
 
         Booking saved = bookingRepository.save(booking);
 
-        // 좌석 예약 생성 및 좌석 상태 변경
-        java.util.ArrayList<BookingSeat> savedSeats = new java.util.ArrayList<>();
-        for (ScheduleSeat seat : seats) {
-            BookingSeat bs = BookingSeat.builder()
-                    .booking(saved)
-                    .seat(seat)
-                    .seatPrice(seat.getPrice())
-                    .build();
-            savedSeats.add(bookingSeatRepository.save(bs));
-            seat.setStatus(SeatStatus.BOOKED);
-        }
+        // 예약 좌석 정보 생성 (좌석 상태 변경은 하지 않음)
+        List<BookingSeat> savedSeats = seats.stream()
+                .map(seat -> BookingSeat.builder()
+                        .booking(saved)
+                        .seat(seat)
+                        .seatPrice(seat.getPrice())
+                        .build())
+                .map(bookingSeatRepository::save)
+                .collect(Collectors.toList());
 
-        // 좌석 상태 일괄 저장
-        scheduleSeatRepository.saveAll(seats);
         saved.setBookingSeats(savedSeats);
 
         return toCreateResponse(saved);
     }
 
+    /**
+     * 예약 확정 (결제 완료 후 호출)
+     */
+    @Transactional
+    public void confirmBooking(Long bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
+
+        if (booking.getStatus() != BookingStatus.PENDING) {
+            throw new ResponseStatusException(BAD_REQUEST, "확정할 수 없는 예약 상태입니다");
+        }
+
+        // 좌석 확정 (SeatService에 위임)
+        List<Long> seatIds = booking.getBookingSeats().stream()
+                .map(bs -> bs.getSeat().getSeatId())
+                .collect(Collectors.toList());
+
+        boolean confirmed = seatService.confirmSeats(seatIds, booking.getUser().getUserId());
+
+        if (!confirmed) {
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 확정 실패");
+        }
+
+        // 예약 상태 변경
+        booking.setStatus(BookingStatus.CONFIRMED);
+        bookingRepository.save(booking);
+    }
+
+    /**
+     * 예약 상세 조회
+     */
     @Transactional(readOnly = true)
     public GetBookingDetail200ResponseDto getBookingDetail(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
@@ -98,6 +136,9 @@ public class BookingService {
         return toDetailDto(booking);
     }
 
+    /**
+     * 예약 목록 조회
+     */
     @Transactional(readOnly = true)
     public GetBookings200ResponseDto getBookings(String status, int page, int limit) {
         PageRequest pr = PageRequest.of(Math.max(page - 1, 0), Math.max(limit, 1));
@@ -126,6 +167,9 @@ public class BookingService {
                 .build();
     }
 
+    /**
+     * 예약 취소
+     */
     @Transactional
     public CancelBooking200ResponseDto cancelBooking(Long bookingId, CancelBookingRequestDto req) {
         Booking booking = bookingRepository.findById(bookingId)
@@ -135,20 +179,22 @@ public class BookingService {
             throw new ResponseStatusException(BAD_REQUEST, "이미 취소된 예매입니다");
         }
 
+        // 좌석 취소 (SeatService에 위임)
+        List<Long> seatIds = booking.getBookingSeats().stream()
+                .map(bs -> bs.getSeat().getSeatId())
+                .collect(Collectors.toList());
+
+        boolean cancelled = seatService.cancelSeats(seatIds);
+
+        if (!cancelled) {
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 취소 실패");
+        }
+
+        // 예약 상태 변경
         booking.setStatus(BookingStatus.CANCELLED);
         booking.setCancelledAt(java.time.LocalDateTime.now());
         if (req != null) {
             booking.setCancellationReason(req.getReason());
-        }
-
-        // 좌석 상태 되돌리기
-        List<BookingSeat> seats = booking.getBookingSeats();
-        if (seats != null) {
-            for (BookingSeat bs : seats) {
-                ScheduleSeat seat = bs.getSeat();
-                seat.setStatus(SeatStatus.AVAILABLE);
-                scheduleSeatRepository.save(seat);
-            }
         }
 
         bookingRepository.save(booking);
@@ -161,6 +207,66 @@ public class BookingService {
                 .refundAmount(booking.getTotalAmount() == null ? 0.0 : booking.getTotalAmount().doubleValue())
                 .build();
     }
+
+    /**
+     * 예약 만료 처리 (스케줄러에서 호출)
+     */
+    @Transactional
+    public void expireBooking(Long bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
+
+        if (booking.getStatus() == BookingStatus.PENDING) {
+            // 좌석 락 해제 (SeatService에 위임)
+            List<Long> seatIds = booking.getBookingSeats().stream()
+                    .map(bs -> bs.getSeat().getSeatId())
+                    .collect(Collectors.toList());
+
+            seatService.releaseSeats(seatIds, booking.getUser().getUserId(), null);
+
+            // 예약 취소
+            booking.setStatus(BookingStatus.CANCELLED);
+            booking.setCancelledAt(java.time.LocalDateTime.now());
+            booking.setCancellationReason("결제 시간 만료");
+            bookingRepository.save(booking);
+        }
+    }
+
+    /**
+     * 사용자별 예약 목록 조회
+     */
+    @Transactional(readOnly = true)
+    public GetBookings200ResponseDto getUserBookings(String username, String status, int page, int limit) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "사용자 인증 실패"));
+
+        PageRequest pr = PageRequest.of(Math.max(page - 1, 0), Math.max(limit, 1));
+
+        Page<Booking> result;
+        if (status != null && !status.isBlank()) {
+            BookingStatus bs;
+            try {
+                bs = BookingStatus.valueOf(status.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new ResponseStatusException(BAD_REQUEST, "유효하지 않은 상태 값");
+            }
+            result = bookingRepository.findByUserAndStatus(user, bs, pr);
+        } else {
+            result = bookingRepository.findByUser(user, pr);
+        }
+
+        List<BookingDto> items = result.getContent().stream()
+                .map(this::toListDto)
+                .collect(Collectors.toList());
+
+        return GetBookings200ResponseDto.builder()
+                .bookings(items)
+                .total(Math.toIntExact(result.getTotalElements()))
+                .page(page)
+                .build();
+    }
+
+    // === Private Helper Methods (DTO 변환) ===
 
     private CreateBookingResponseDto toCreateResponse(Booking b) {
         return CreateBookingResponseDto.builder()
