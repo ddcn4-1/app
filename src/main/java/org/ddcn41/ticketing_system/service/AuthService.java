@@ -2,6 +2,7 @@ package org.ddcn41.ticketing_system.service;
 
 import org.ddcn41.ticketing_system.config.JwtUtil;
 import org.ddcn41.ticketing_system.dto.response.LogoutResponse;
+import org.ddcn41.ticketing_system.exception.TokenProcessingException;
 import org.springframework.stereotype.Service;
 
 @Service
