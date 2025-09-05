@@ -6,6 +6,7 @@ import org.ddcn41.ticketing_system.dto.AuthDtos.AuthResponse;
 import org.ddcn41.ticketing_system.dto.AuthDtos.LoginRequest;
 import org.ddcn41.ticketing_system.config.JwtUtil;
 import org.ddcn41.ticketing_system.entity.User;
+import org.ddcn41.ticketing_system.service.AuthAuditService;
 import org.ddcn41.ticketing_system.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,11 +25,13 @@ public class AdminAuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
     private final UserService userService;
+    private final AuthAuditService authAuditService;
 
-    public AdminAuthController(AuthenticationManager authenticationManager, JwtUtil jwtUtil, UserService userService) {
+    public AdminAuthController(AuthenticationManager authenticationManager, JwtUtil jwtUtil, UserService userService, AuthAuditService authAuditService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
+        this.authAuditService = authAuditService;
     }
 
     /**
@@ -59,10 +62,18 @@ public class AdminAuthController {
             // JWT 토큰 생성
             String token = jwtUtil.generate(auth.getName());
 
+            // 로그인 성공 로그
+            authAuditService.logLoginSuccess(actualUsername);
+
             // 관리자 로그인 성공 응답
             return ResponseEntity.ok(new AuthResponse(token, "ADMIN"));
 
         } catch (Exception e) {
+            String actualUsername = userService.resolveUsernameFromEmailOrUsername(dto.getUsernameOrEmail());
+
+            // 로그인 실패 로그
+            authAuditService.logLoginFailure(actualUsername, e.getMessage());
+
             return ResponseEntity.status(401).body(Map.of(
                     "error", "Unauthorized",
                     "message", "관리자 로그인 실패: " + e.getMessage(),
@@ -90,6 +101,9 @@ public class AdminAuthController {
                 long expirationTime = jwtUtil.extractClaims(token).getExpiration().getTime();
                 long timeLeft = (expirationTime - System.currentTimeMillis()) / 1000 / 60; // 분 단위
 
+                // 로그아웃 로그
+                authAuditService.logLogout(adminUsername);
+
                 return ResponseEntity.ok(Map.of(
                         "message", "관리자 로그아웃 완료",
                         "admin", adminUsername,
@@ -107,6 +121,9 @@ public class AdminAuthController {
                 ));
             }
         }
+
+        // 로그아웃 로그
+        authAuditService.logLogout(adminUsername);
 
         // 토큰이 없는 경우에도 성공 응답
         return ResponseEntity.ok(Map.of(
