@@ -1,12 +1,10 @@
 package org.ddcn41.ticketing_system.service;
 
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,14 +36,22 @@ public class AuthAuditService {
         auditEventRepository.add(auditEvent);
     }
 
-    // 모든 인증 이벤트 조회
-    public List<AuditEvent> getAuthEvents() {
-        return auditEventRepository.find(null, null, null);
+    // 로그인, 로그아웃 관련 이벤트 전체 조회
+    public List<AuditEvent> getAllAuthEvents() {
+        return auditEventRepository.find(null, null, null)
+                .stream()
+                .filter(event -> {
+                    String type = event.getType();
+                    return "LOGIN_SUCCESS".equals(type) ||
+                            "LOGIN_FAILURE".equals(type) ||
+                            "LOGOUT".equals(type);
+                })
+                .collect(Collectors.toList());
     }
 
     // 최근 활동 조회
     public List<AuditEvent> getRecentAuthEvents(int limit) {
-        return getAuthEvents().stream()
+        return getAllAuthEvents().stream()
                 .sorted((a, b) -> b.getTimestamp().compareTo(a.getTimestamp()))
                 .limit(limit)
                 .collect(Collectors.toList());
@@ -54,8 +60,6 @@ public class AuthAuditService {
     // Audit Data 생성
     private Map<String, Object> createAuditData(String username, String details) {
         Map<String, Object> data = new HashMap<>();
-        data.put("username", username);
-        data.put("timestamp", Instant.now());
         data.put("details", details);
         return data;
     }
