@@ -5,12 +5,15 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
+import java.time.Instant;
 
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
-public class DashboardDto {
-    private List<AuthLogDto> recentAuthLogs;
+public class AuthLogDto {
+    private String username;
+    private String action;
+    private Instant timestamp;
+    private String details;
 }

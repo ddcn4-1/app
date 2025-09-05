@@ -16,8 +16,9 @@ import java.util.List;
 public class AdminController {
     private final AdminService adminService;
 
-    @GetMapping()
+    @GetMapping
     public ResponseEntity<DashboardDto> getDashboard() {
-        return ResponseEntity.ok(adminService.getDashboardData());
+        DashboardDto dashboard = adminService.getDashboardData();
+        return ResponseEntity.ok(dashboard);
     }
 }
