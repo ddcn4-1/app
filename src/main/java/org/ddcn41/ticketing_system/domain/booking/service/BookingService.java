@@ -14,12 +14,12 @@ import org.ddcn41.ticketing_system.domain.booking.dto.response.GetBookings200Res
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking;
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking.BookingStatus;
 import org.ddcn41.ticketing_system.domain.booking.entity.BookingSeat;
-import org.ddcn41.ticketing_system.entity.ScheduleSeat;
-import org.ddcn41.ticketing_system.entity.ScheduleSeat.SeatStatus;
+import org.ddcn41.ticketing_system.domain.performance.entity.ScheduleSeat;
+import org.ddcn41.ticketing_system.domain.performance.entity.ScheduleSeat.SeatStatus;
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.booking.repository.BookingRepository;
 import org.ddcn41.ticketing_system.domain.booking.repository.BookingSeatRepository;
-import org.ddcn41.ticketing_system.repository.ScheduleSeatRepository;
+import org.ddcn41.ticketing_system.domain.performance.repository.ScheduleSeatRepository;
 import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
