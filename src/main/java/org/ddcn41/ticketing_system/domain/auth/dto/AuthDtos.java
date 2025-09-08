@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.dto;
+package org.ddcn41.ticketing_system.domain.auth.dto;
 
 import jakarta.validation.constraints.NotBlank;
 

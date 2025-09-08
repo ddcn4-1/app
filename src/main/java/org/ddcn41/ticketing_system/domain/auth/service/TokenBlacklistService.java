@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.auth.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;

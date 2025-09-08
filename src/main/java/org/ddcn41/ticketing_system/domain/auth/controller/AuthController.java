@@ -1,13 +1,13 @@
-package org.ddcn41.ticketing_system.controller;
+package org.ddcn41.ticketing_system.domain.auth.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import org.ddcn41.ticketing_system.dto.AuthDtos.AuthResponse;
-import org.ddcn41.ticketing_system.dto.AuthDtos.LoginRequest;
+import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.AuthResponse;
+import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.LoginRequest;
 import org.ddcn41.ticketing_system.global.config.JwtUtil;
 import org.ddcn41.ticketing_system.dto.response.ApiResponse;
-import org.ddcn41.ticketing_system.dto.response.LogoutResponse;
-import org.ddcn41.ticketing_system.service.AuthService;
+import org.ddcn41.ticketing_system.domain.auth.dto.response.LogoutResponse;
+import org.ddcn41.ticketing_system.domain.auth.service.AuthService;
 import org.ddcn41.ticketing_system.domain.user.service.UserService;
 import org.ddcn41.ticketing_system.global.util.TokenExtractor;
 import org.springframework.http.ResponseEntity;

@@ -1,7 +1,7 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.auth.service;
 
 import org.ddcn41.ticketing_system.global.config.JwtUtil;
-import org.ddcn41.ticketing_system.dto.response.LogoutResponse;
+import org.ddcn41.ticketing_system.domain.auth.dto.response.LogoutResponse;
 import org.ddcn41.ticketing_system.global.exception.TokenProcessingException;
 import org.springframework.stereotype.Service;
 
