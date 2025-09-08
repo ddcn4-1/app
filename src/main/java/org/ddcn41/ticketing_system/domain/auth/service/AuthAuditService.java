@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.auth.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.actuate.audit.AuditEvent;
