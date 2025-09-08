@@ -47,7 +47,7 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
 
         //좌석 가용성 확인 (SeatService에 위임)
-        boolean seatsAvailable = seatService.areSeatsAvailable(req.getSeatIds());
+        boolean seatsAvailable = seatService.areSeatsAvailableForUser(req.getSeatIds(), user.getUserId());
         if (!seatsAvailable) {
             throw new ResponseStatusException(BAD_REQUEST, "선택한 좌석이 예약 불가능합니다");
         }

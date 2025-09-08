@@ -276,6 +276,50 @@ public class SeatService {
         }
     }
 
+    /**
+     * 특정 사용자가 특정 좌석들을 예매할 수 있는지 확인
+     * (자신이 락한 좌석은 예매 가능으로 판단)
+     */
+    @Transactional(readOnly = true)
+    public boolean areSeatsAvailableForUser(List<Long> seatIds, Long userId) {
+        List<ScheduleSeat> seats = scheduleSeatRepository.findAllById(seatIds);
+
+        if (seats.size() != seatIds.size()) {
+            return false; // 일부 좌석이 존재하지 않음
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + userId));
+
+        for (ScheduleSeat seat : seats) {
+            if (seat.getStatus() == ScheduleSeat.SeatStatus.AVAILABLE) {
+                continue; // 사용 가능한 좌석
+            }
+
+            if (seat.getStatus() == ScheduleSeat.SeatStatus.BOOKED) {
+                return false; // 이미 예매된 좌석
+            }
+
+            if (seat.getStatus() == ScheduleSeat.SeatStatus.LOCKED) {
+                // 락된 좌석이지만 현재 사용자가 락한 것인지 확인
+                Optional<SeatLock> lockOpt = seatLockRepository
+                        .findBySeatSeatIdAndUserAndStatus(seat.getSeatId(), user, SeatLock.LockStatus.ACTIVE);
+
+                if (lockOpt.isEmpty()) {
+                    return false; // 다른 사용자가 락한 좌석
+                }
+
+                // 락이 만료되었는지 확인
+                SeatLock lock = lockOpt.get();
+                if (lock.getExpiresAt().isBefore(LocalDateTime.now())) {
+                    return false; // 만료된 락
+                }
+            }
+        }
+
+        return true;
+    }
+
     // === Private Helper Methods ===
 
     private void releaseSingleSeat(SeatLock lock) {
