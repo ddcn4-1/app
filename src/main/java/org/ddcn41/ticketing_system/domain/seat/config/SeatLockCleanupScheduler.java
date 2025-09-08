@@ -1,6 +1,6 @@
-package org.ddcn41.ticketing_system.config;
+package org.ddcn41.ticketing_system.domain.seat.config;
 
-import org.ddcn41.ticketing_system.service.SeatService;
+import org.ddcn41.ticketing_system.domain.seat.service.SeatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

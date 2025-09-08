@@ -1,10 +1,8 @@
-package org.ddcn41.ticketing_system.repository;
+package org.ddcn41.ticketing_system.domain.booking.repository;
 
-import org.ddcn41.ticketing_system.entity.Booking;
-import org.ddcn41.ticketing_system.entity.Booking.BookingStatus;
-import org.ddcn41.ticketing_system.entity.User;
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking;
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking.BookingStatus;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

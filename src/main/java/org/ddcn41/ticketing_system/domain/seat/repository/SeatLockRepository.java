@@ -1,6 +1,9 @@
-package org.ddcn41.ticketing_system.repository;
+package org.ddcn41.ticketing_system.domain.seat.repository;
 
-import org.ddcn41.ticketing_system.entity.*;
+import org.ddcn41.ticketing_system.domain.seat.entity.ScheduleSeat;
+import org.ddcn41.ticketing_system.domain.seat.entity.SeatLock;
+
+import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

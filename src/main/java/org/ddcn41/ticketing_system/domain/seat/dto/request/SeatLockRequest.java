@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.dto.request;
+package org.ddcn41.ticketing_system.domain.seat.dto.request;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,7 +13,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class SeatReleaseRequest {
+public class SeatLockRequest {
     @NotEmpty(message = "좌석 ID 목록은 필수입니다")
     private List<Long> seatIds;
 

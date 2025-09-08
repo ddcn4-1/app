@@ -1,11 +1,17 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.seat.service;
 
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.dto.SeatDto;
-import org.ddcn41.ticketing_system.dto.response.SeatAvailabilityResponse;
-import org.ddcn41.ticketing_system.dto.response.SeatLockResponse;
-import org.ddcn41.ticketing_system.entity.*;
-import org.ddcn41.ticketing_system.repository.*;
+import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceScheduleRepository;
+import org.ddcn41.ticketing_system.domain.seat.entity.ScheduleSeat;
+import org.ddcn41.ticketing_system.domain.seat.entity.SeatLock;
+import org.ddcn41.ticketing_system.domain.seat.repository.ScheduleSeatRepository;
+import org.ddcn41.ticketing_system.domain.seat.repository.SeatLockRepository;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
+import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
+import org.ddcn41.ticketing_system.domain.seat.dto.SeatDto;
+import org.ddcn41.ticketing_system.domain.seat.dto.response.SeatAvailabilityResponse;
+import org.ddcn41.ticketing_system.domain.seat.dto.response.SeatLockResponse;
+
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

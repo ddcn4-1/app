@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.service;
+package org.ddcn41.ticketing_system.domain.booking.service;
 
 import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
@@ -14,23 +14,14 @@ import org.ddcn41.ticketing_system.domain.booking.dto.response.GetBookings200Res
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking;
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking.BookingStatus;
 import org.ddcn41.ticketing_system.domain.booking.entity.BookingSeat;
-import org.ddcn41.ticketing_system.domain.performance.entity.ScheduleSeat;
-import org.ddcn41.ticketing_system.domain.performance.entity.ScheduleSeat.SeatStatus;
+import org.ddcn41.ticketing_system.domain.seat.entity.ScheduleSeat;
+import org.ddcn41.ticketing_system.domain.seat.repository.ScheduleSeatRepository;
+import org.ddcn41.ticketing_system.domain.seat.service.SeatService;
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.booking.repository.BookingRepository;
 import org.ddcn41.ticketing_system.domain.booking.repository.BookingSeatRepository;
-import org.ddcn41.ticketing_system.domain.performance.repository.ScheduleSeatRepository;
 import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
-import org.ddcn41.ticketing_system.dto.*;
-import org.ddcn41.ticketing_system.dto.request.CancelBookingRequestDto;
-import org.ddcn41.ticketing_system.dto.request.CreateBookingRequestDto;
-import org.ddcn41.ticketing_system.dto.response.CancelBooking200ResponseDto;
-import org.ddcn41.ticketing_system.dto.response.CreateBookingResponseDto;
-import org.ddcn41.ticketing_system.dto.response.GetBookingDetail200ResponseDto;
-import org.ddcn41.ticketing_system.dto.response.GetBookings200ResponseDto;
-import org.ddcn41.ticketing_system.entity.*;
-import org.ddcn41.ticketing_system.entity.Booking.BookingStatus;
-import org.ddcn41.ticketing_system.repository.*;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -45,6 +36,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.*;
+
 
 @Service
 @RequiredArgsConstructor
