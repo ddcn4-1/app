@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.AuthResponse;
 import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.LoginRequest;
+import org.ddcn41.ticketing_system.domain.auth.service.AuthAuditService;
 import org.ddcn41.ticketing_system.global.config.JwtUtil;
 import org.ddcn41.ticketing_system.dto.response.ApiResponse;
 import org.ddcn41.ticketing_system.domain.auth.dto.response.LogoutResponse;
@@ -26,13 +27,15 @@ public class AuthController {
     private final UserService userService;
     private final AuthService authService;
     private final TokenExtractor tokenExtractor;
+    private final AuthAuditService authAuditService;
 
-    public AuthController(AuthenticationManager authenticationManager, JwtUtil jwtUtil, UserService userService, AuthService authService, TokenExtractor tokenExtractor) {
+    public AuthController(AuthenticationManager authenticationManager, JwtUtil jwtUtil, UserService userService, AuthService authService, TokenExtractor tokenExtractor, AuthAuditService authAuditService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
         this.authService = authService;
         this.tokenExtractor = tokenExtractor;
+        this.authAuditService = authAuditService;
     }
 
     /**
@@ -50,6 +53,9 @@ public class AuthController {
         String token = jwtUtil.generate(auth.getName());
         String userRole = userService.getUserRole(actualUsername);
 
+        // 로그인 성공 로그
+        authAuditService.logLoginSuccess(actualUsername);
+
         return new AuthResponse(token, userRole);
     }
 
@@ -66,6 +72,9 @@ public class AuthController {
 
         LogoutResponse logoutData = authService.processLogout(token, username);
         ApiResponse<LogoutResponse> response = ApiResponse.success("로그아웃 완료", logoutData);
+
+        // 로그아웃 로그
+        authAuditService.logLogout(username);
 
         return ResponseEntity.ok(response);
     }
