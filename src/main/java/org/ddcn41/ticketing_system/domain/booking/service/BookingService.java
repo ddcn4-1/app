@@ -37,7 +37,6 @@ import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.*;
 
-
 @Service
 @RequiredArgsConstructor
 public class BookingService {
@@ -58,7 +57,25 @@ public class BookingService {
         PerformanceSchedule schedule = scheduleRepository.findById(req.getScheduleId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
 
-        //좌석 가용성 확인 (SeatService에 위임)
+        // 요청된 좌석들이 해당 스케줄에 속하는지 먼저 검증
+        List<ScheduleSeat> requestedSeats = scheduleSeatRepository.findBySchedule_ScheduleIdAndSeatIdIn(
+                req.getScheduleId(), req.getSeatIds());
+
+        if (requestedSeats.size() != req.getSeatIds().size()) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "선택한 좌석 중 일부가 해당 공연 스케줄에 속하지 않습니다");
+        }
+
+        // 보안  2: 모든 좌석이 올바른 스케줄에 속하는지 재확인
+        boolean allSeatsInSchedule = requestedSeats.stream()
+                .allMatch(seat -> seat.getSchedule().getScheduleId().equals(req.getScheduleId()));
+
+        if (!allSeatsInSchedule) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "선택한 좌석이 요청된 공연 스케줄과 일치하지 않습니다");
+        }
+
+        // 좌석 가용성 확인 (SeatService에 위임)
         boolean seatsAvailable = seatService.areSeatsAvailableForUser(req.getSeatIds(), user.getUserId());
         if (!seatsAvailable) {
             throw new ResponseStatusException(BAD_REQUEST, "선택한 좌석이 예약 불가능합니다");
@@ -70,12 +87,8 @@ public class BookingService {
             throw new ResponseStatusException(BAD_REQUEST, lockResponse.getMessage());
         }
 
-        List<ScheduleSeat> seats = scheduleSeatRepository.findAllById(req.getSeatIds());
-        if (seats.size() != req.getSeatIds().size()) {
-            // 락은 성공했지만 좌석 정보 조회 실패 - 락 해제 후 에러
-            seatService.releaseSeats(req.getSeatIds(), user.getUserId(), req.getQueueToken());
-            throw new ResponseStatusException(BAD_REQUEST, "일부 좌석 정보를 조회할 수 없습니다");
-        }
+        // 이미 검증된 requestedSeats 사용 (중복 조회 방지)
+        List<ScheduleSeat> seats = requestedSeats;
 
         BigDecimal total = seats.stream()
                 .map(ScheduleSeat::getPrice)

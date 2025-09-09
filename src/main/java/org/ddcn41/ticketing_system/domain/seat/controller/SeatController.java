@@ -1,6 +1,5 @@
 package org.ddcn41.ticketing_system.domain.seat.controller;
 
-
 import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.domain.seat.dto.request.SeatConfirmRequest;
 import org.ddcn41.ticketing_system.domain.seat.dto.request.SeatLockRequest;
@@ -9,12 +8,14 @@ import org.ddcn41.ticketing_system.dto.response.ApiResponse;
 import org.ddcn41.ticketing_system.domain.seat.dto.response.SeatAvailabilityResponse;
 import org.ddcn41.ticketing_system.domain.seat.dto.response.SeatLockResponse;
 import org.ddcn41.ticketing_system.domain.seat.service.SeatService;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
+import org.ddcn41.ticketing_system.domain.user.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
-
 import java.util.List;
 
 /**
@@ -27,6 +28,7 @@ import java.util.List;
 public class SeatController {
 
     private final SeatService seatService;
+    private final UserService userService;
 
     /**
      * 스케줄의 좌석 가용성 조회
@@ -69,12 +71,36 @@ public class SeatController {
     @PreAuthorize("hasRole('USER') or hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<SeatLockResponse>> lockScheduleSeats(
             @PathVariable Long scheduleId,
-            @Valid @RequestBody SeatLockRequest request) {
+            @Valid @RequestBody SeatLockRequest request,
+            Authentication authentication) {
 
-        // scheduleId는 검증용으로 사용 (실제 좌석 ID로 스케줄 검증)
+        // 보안 : 인증된 사용자 정보에서 userId 추출
+        String username = authentication.getName();
+        User authenticatedUser = userService.findByUsername(username);
+
+        // 관리자가 아닌 경우, 요청의 userId와 인증된 사용자가 일치하는지 검증
+        if (!User.Role.ADMIN.equals(authenticatedUser.getRole()) &&
+                !authenticatedUser.getUserId().equals(request.getUserId())) {
+            return ResponseEntity.status(403).body(
+                    ApiResponse.error("본인의 좌석만 잠금할 수 있습니다", "FORBIDDEN", null)
+            );
+        }
+
+        // 추가 검증: 요청된 좌석들이 해당 스케줄에 속하는지 확인
+        boolean seatsValidForSchedule = seatService.validateSeatsForSchedule(request.getSeatIds(), scheduleId);
+        if (!seatsValidForSchedule) {
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("선택한 좌석이 해당 공연 스케줄에 속하지 않습니다", "INVALID_SEATS", null)
+            );
+        }
+
+        // 실제 사용할 userId는 인증된 사용자의 ID (관리자인 경우에만 request의 userId 허용)
+        Long effectiveUserId = User.Role.ADMIN.equals(authenticatedUser.getRole()) ?
+                request.getUserId() : authenticatedUser.getUserId();
+
         SeatLockResponse response = seatService.lockSeats(
                 request.getSeatIds(),
-                request.getUserId(),
+                effectiveUserId,  // 인증된 사용자 ID 사용
                 request.getSessionId()
         );
 
@@ -97,11 +123,36 @@ public class SeatController {
     @PreAuthorize("hasRole('USER') or hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Boolean>> releaseScheduleSeats(
             @PathVariable Long scheduleId,
-            @Valid @RequestBody SeatReleaseRequest request) {
+            @Valid @RequestBody SeatReleaseRequest request,
+            Authentication authentication) {
+
+        // 보안 수정: 인증된 사용자 정보에서 userId 추출
+        String username = authentication.getName();
+        User authenticatedUser = userService.findByUsername(username);
+
+        // 관리자가 아닌 경우, 요청의 userId와 인증된 사용자가 일치하는지 검증
+        if (!User.Role.ADMIN.equals(authenticatedUser.getRole()) &&
+                !authenticatedUser.getUserId().equals(request.getUserId())) {
+            return ResponseEntity.status(403).body(
+                    ApiResponse.error("본인의 좌석만 해제할 수 있습니다", "FORBIDDEN", false)
+            );
+        }
+
+        // 추가 검증: 요청된 좌석들이 해당 스케줄에 속하는지 확인
+        boolean seatsValidForSchedule = seatService.validateSeatsForSchedule(request.getSeatIds(), scheduleId);
+        if (!seatsValidForSchedule) {
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("선택한 좌석이 해당 공연 스케줄에 속하지 않습니다", "INVALID_SEATS", false)
+            );
+        }
+
+        // 실제 사용할 userId는 인증된 사용자의 ID (관리자인 경우에만 request의 userId 허용)
+        Long effectiveUserId = User.Role.ADMIN.equals(authenticatedUser.getRole()) ?
+                request.getUserId() : authenticatedUser.getUserId();
 
         boolean released = seatService.releaseSeats(
                 request.getSeatIds(),
-                request.getUserId(),
+                effectiveUserId,  // 인증된 사용자 ID 사용
                 request.getSessionId()
         );
 
@@ -120,11 +171,28 @@ public class SeatController {
     @PostMapping("/seats/confirm")
     @PreAuthorize("hasRole('USER') or hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Boolean>> confirmSeats(
-            @Valid @RequestBody SeatConfirmRequest request) {
+            @Valid @RequestBody SeatConfirmRequest request,
+            Authentication authentication) {
+
+        //  인증된 사용자 정보에서 userId 추출
+        String username = authentication.getName();
+        User authenticatedUser = userService.findByUsername(username);
+
+        // 관리자가 아닌 경우, 요청의 userId와 인증된 사용자가 일치하는지 검증
+        if (!User.Role.ADMIN.equals(authenticatedUser.getRole()) &&
+                !authenticatedUser.getUserId().equals(request.getUserId())) {
+            return ResponseEntity.status(403).body(
+                    ApiResponse.error("본인의 좌석만 확정할 수 있습니다", "FORBIDDEN", false)
+            );
+        }
+
+        // 실제 사용할 userId는 인증된 사용자의 ID (관리자인 경우에만 request의 userId 허용)
+        Long effectiveUserId = User.Role.ADMIN.equals(authenticatedUser.getRole()) ?
+                request.getUserId() : authenticatedUser.getUserId();
 
         boolean confirmed = seatService.confirmSeats(
                 request.getSeatIds(),
-                request.getUserId()
+                effectiveUserId  // 인증된 사용자 ID 사용
         );
 
         if (confirmed) {

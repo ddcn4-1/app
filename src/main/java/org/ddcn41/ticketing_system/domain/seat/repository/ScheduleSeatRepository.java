@@ -54,4 +54,37 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
     @Query("SELECT ss FROM ScheduleSeat ss JOIN SeatLock sl ON ss.seatId = sl.seat.seatId " +
             "WHERE sl.user.userId = :userId AND sl.status = 'ACTIVE'")
     List<ScheduleSeat> findLockedSeatsByUser(@Param("userId") Long userId);
+
+    //  검증 메서드들
+
+    /**
+     * 스케줄 ID와 좌석 ID 목록으로 좌석 조회 (cross-schedule 검증용)
+     * 이미 위에 정의되어 있음: findBySchedule_ScheduleIdAndSeatIdIn
+     */
+
+    /**
+     * 특정 좌석들의 스케줄 ID 조회 (동일 스케줄 검증용)
+     */
+    @Query("SELECT DISTINCT s.schedule.scheduleId FROM ScheduleSeat s WHERE s.seatId IN :seatIds")
+    List<Long> findDistinctScheduleIdsBySeatIds(@Param("seatIds") List<Long> seatIds);
+
+    /**
+     * 좌석 ID로 해당 좌석이 속한 스케줄 정보 조회
+     */
+    @Query("SELECT s.schedule.scheduleId FROM ScheduleSeat s WHERE s.seatId = :seatId")
+    Long findScheduleIdBySeatId(@Param("seatId") Long seatId);
+
+    /**
+     * 스케줄과 상태로 좌석 개수 조회
+     */
+    @Query("SELECT COUNT(s) FROM ScheduleSeat s WHERE s.schedule.scheduleId = :scheduleId AND s.status = :status")
+    Long countByScheduleIdAndStatus(@Param("scheduleId") Long scheduleId, @Param("status") ScheduleSeat.SeatStatus status);
+
+    /**
+     * 여러 스케줄의 가용 좌석 수 조회 (배치 처리용)
+     */
+    @Query("SELECT s.schedule.scheduleId, COUNT(s) FROM ScheduleSeat s " +
+            "WHERE s.schedule.scheduleId IN :scheduleIds AND s.status = 'AVAILABLE' " +
+            "GROUP BY s.schedule.scheduleId")
+    List<Object[]> countAvailableSeatsByScheduleIds(@Param("scheduleIds") List<Long> scheduleIds);
 }

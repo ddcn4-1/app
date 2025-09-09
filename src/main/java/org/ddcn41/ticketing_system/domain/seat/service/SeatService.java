@@ -326,6 +326,69 @@ public class SeatService {
         return true;
     }
 
+    /**
+     * 특정 좌석들이 지정된 스케줄에 속하는지 검증
+     * @param seatIds 검증할 좌석 ID 목록
+     * @param scheduleId 스케줄 ID
+     * @return 모든 좌석이 해당 스케줄에 속하면 true, 아니면 false
+     */
+    @Transactional(readOnly = true)
+    public boolean validateSeatsForSchedule(List<Long> seatIds, Long scheduleId) {
+        if (seatIds == null || seatIds.isEmpty()) {
+            return false;
+        }
+
+        // 요청된 좌석들을 스케줄 ID와 함께 조회
+        List<ScheduleSeat> validSeats = scheduleSeatRepository.findBySchedule_ScheduleIdAndSeatIdIn(
+                scheduleId, seatIds);
+
+        // 조회된 좌석 수가 요청된 좌석 수와 같은지 확인
+        return validSeats.size() == seatIds.size();
+    }
+
+    /**
+     * 좌석들이 동일한 스케줄에 속하는지 검증 (cross-schedule 공격 방지)
+     * @param seatIds 검증할 좌석 ID 목록
+     * @return 모든 좌석이 동일한 스케줄에 속하면 해당 스케줄 ID, 아니면 null
+     */
+    @Transactional(readOnly = true)
+    public Long validateSeatsInSameSchedule(List<Long> seatIds) {
+        if (seatIds == null || seatIds.isEmpty()) {
+            return null;
+        }
+
+        List<ScheduleSeat> seats = scheduleSeatRepository.findAllById(seatIds);
+
+        if (seats.size() != seatIds.size()) {
+            return null; // 일부 좌석이 존재하지 않음
+        }
+
+        // 모든 좌석의 스케줄 ID가 동일한지 확인
+        Long scheduleId = seats.get(0).getSchedule().getScheduleId();
+        boolean allSameSchedule = seats.stream()
+                .allMatch(seat -> seat.getSchedule().getScheduleId().equals(scheduleId));
+
+        return allSameSchedule ? scheduleId : null;
+    }
+
+    /**
+     * 사용자가 특정 스케줄의 좌석들을 예약할 수 있는지 종합 검증
+     * @param seatIds 좌석 ID 목록
+     * @param scheduleId 스케줄 ID
+     * @param userId 사용자 ID
+     * @return 예약 가능하면 true
+     */
+    @Transactional(readOnly = true)
+    public boolean canUserBookSeatsForSchedule(List<Long> seatIds, Long scheduleId, Long userId) {
+        // 1. 좌석들이 해당 스케줄에 속하는지 검증
+        if (!validateSeatsForSchedule(seatIds, scheduleId)) {
+            return false;
+        }
+
+        // 2. 사용자가 해당 좌석들을 예약할 수 있는지 검증
+        return areSeatsAvailableForUser(seatIds, userId);
+    }
+
     // === Private Helper Methods ===
 
     private void releaseSingleSeat(SeatLock lock) {
