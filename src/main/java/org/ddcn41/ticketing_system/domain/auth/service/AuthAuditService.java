@@ -1,6 +1,7 @@
 package org.ddcn41.ticketing_system.domain.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import org.ddcn41.ticketing_system.global.util.AuditEventBuilder;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.stereotype.Service;
@@ -17,22 +18,34 @@ public class AuthAuditService {
 
     // 로그인 성공 로그
     public void logLoginSuccess(String username) {
-        Map<String, Object> data = createAuditData(username, "Successful login");
-        AuditEvent auditEvent = new AuditEvent(username, "LOGIN_SUCCESS", data);
+        AuditEvent auditEvent = AuditEventBuilder.builder()
+                .principal(username)
+                .type("LOGIN_SUCCESS")
+                .details("Successful login")
+                .build();
+
         auditEventRepository.add(auditEvent);
     }
 
     // 로그인 실패 로그
     public void logLoginFailure(String username, String errorMessage) {
-        Map<String, Object> data = createAuditData(username, "Login failed: " + errorMessage);
-        AuditEvent auditEvent = new AuditEvent(username, "LOGIN_FAILURE", data);
+        AuditEvent auditEvent = AuditEventBuilder.builder()
+                .principal(username)
+                .type("LOGIN_FAILURE")
+                .details("Login failed: " + errorMessage)
+                .build();
+
         auditEventRepository.add(auditEvent);
     }
 
     // 로그아웃 로그
     public void logLogout(String username) {
-        Map<String, Object> data = createAuditData(username, "User logged out");
-        AuditEvent auditEvent = new AuditEvent(username, "LOGOUT", data);
+        AuditEvent auditEvent = AuditEventBuilder.builder()
+                .principal(username)
+                .type("LOGOUT")
+                .details("User logged out")
+                .build();
+
         auditEventRepository.add(auditEvent);
     }
 
@@ -55,12 +68,5 @@ public class AuthAuditService {
                 .sorted((a, b) -> b.getTimestamp().compareTo(a.getTimestamp()))
                 .limit(limit)
                 .collect(Collectors.toList());
-    }
-
-    // Audit Data 생성
-    private Map<String, Object> createAuditData(String username, String details) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("details", details);
-        return data;
     }
 }
