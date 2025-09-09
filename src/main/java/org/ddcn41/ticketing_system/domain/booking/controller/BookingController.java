@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class BookingController {
 
     @PostMapping
     @Operation(summary = "Create a booking", description = "Creates a new booking for the authenticated user")
+    @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Booking created",
                     content = @Content(schema = @Schema(implementation = CreateBookingResponseDto.class))),
@@ -49,6 +51,7 @@ public class BookingController {
 
     @GetMapping("/{bookingId}")
     @Operation(summary = "Get booking detail", description = "Fetches detailed information for a booking")
+    @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "OK",
                     content = @Content(schema = @Schema(implementation = GetBookingDetail200ResponseDto.class))),
@@ -63,6 +66,7 @@ public class BookingController {
 
     @GetMapping
     @Operation(summary = "List bookings", description = "Lists bookings filtered by status with pagination")
+    @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "OK",
                     content = @Content(schema = @Schema(implementation = GetBookings200ResponseDto.class))),
@@ -80,6 +84,7 @@ public class BookingController {
 
     @PatchMapping("/{bookingId}/cancel")
     @Operation(summary = "Cancel a booking", description = "Cancels an existing booking")
+    @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Booking cancelled",
                     content = @Content(schema = @Schema(implementation = CancelBooking200ResponseDto.class))),
