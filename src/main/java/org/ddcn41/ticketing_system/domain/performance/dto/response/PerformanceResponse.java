@@ -18,7 +18,6 @@ public class PerformanceResponse {
     private BigDecimal price;
     private Performance.PerformanceStatus status;
 
-
     public static PerformanceResponse from(Performance performance){
         return PerformanceResponse.builder()
                 .title(performance.getTitle())
