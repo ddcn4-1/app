@@ -46,6 +46,18 @@ public class UserService {
         userRepository.deleteById(userId);
     }
 
+    // 유저 검색
+    public List<UserDto> searchUsers(String username, User.Role role, User.Status status) {
+        List<UserDto> result = getAllUsers();
+
+        return result.stream()
+                .filter(u -> username == null || username.trim().isEmpty() ||
+                        u.getUsername().toLowerCase().contains(username.toLowerCase()))
+                .filter(u -> role == null || u.getRole().equals(role))
+                .filter(u -> status == null || u.getStatus().equals(status))
+                .collect(Collectors.toList());
+    }
+
     public String resolveUsernameFromEmailOrUsername(String usernameOrEmail) {
         if (usernameOrEmail.contains("@")) {
             // 이메일로 사용자 찾기

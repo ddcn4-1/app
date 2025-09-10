@@ -2,6 +2,7 @@ package org.ddcn41.ticketing_system.domain.admin.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.domain.user.dto.UserDto;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -37,5 +38,17 @@ public class AdminUserController {
     public ResponseEntity<UserDto> deleteUser(@PathVariable Long userId) {
         userService.deleteUser(userId);
         return ResponseEntity.noContent().build();
+    }
+
+    // 유저 검색
+    @GetMapping("/search")
+    public ResponseEntity<List<UserDto>> searchUsers(
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) User.Role role,
+            @RequestParam(required = false) User.Status status) {
+
+        List<UserDto> users = userService.searchUsers(username, role, status);
+
+        return ResponseEntity.ok(users);
     }
 }
