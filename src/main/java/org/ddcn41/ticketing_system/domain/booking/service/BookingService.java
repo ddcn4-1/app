@@ -49,7 +49,7 @@ public class BookingService {
 
     private final SeatService seatService;
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CreateBookingResponseDto createBooking(String username, CreateBookingRequestDto req) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "사용자 인증 실패"));
@@ -75,16 +75,11 @@ public class BookingService {
                     "선택한 좌석이 요청된 공연 스케줄과 일치하지 않습니다");
         }
 
-        // 좌석 가용성 확인 (SeatService에 위임)
-        boolean seatsAvailable = seatService.areSeatsAvailableForUser(req.getSeatIds(), user.getUserId());
-        if (!seatsAvailable) {
-            throw new ResponseStatusException(BAD_REQUEST, "선택한 좌석이 예약 불가능합니다");
-        }
-
-        // 좌석 락
-        var lockResponse = seatService.lockSeats(req.getSeatIds(), user.getUserId(), req.getQueueToken());
-        if (!lockResponse.isSuccess()) {
-            throw new ResponseStatusException(BAD_REQUEST, lockResponse.getMessage());
+        // 좌석 가용성 확인 (간단한 체크만)
+        for (ScheduleSeat seat : requestedSeats) {
+            if (seat.getStatus() == ScheduleSeat.SeatStatus.BOOKED) {
+                throw new ResponseStatusException(BAD_REQUEST, "이미 예약된 좌석이 포함되어 있습니다");
+            }
         }
 
         // 이미 검증된 requestedSeats 사용 (중복 조회 방지)
@@ -103,7 +98,7 @@ public class BookingService {
                 .seatCount(seats.size())
                 .totalAmount(total)
                 .status(BookingStatus.PENDING) // 결제 전 PENDING
-                .expiresAt(lockResponse.getExpiresAt()) // 락 만료 시간 동일
+//                .expiresAt(lockResponse.getExpiresAt()) // 락 만료 시간 동일
                 .build();
 
         Booking saved = bookingRepository.save(booking);
@@ -126,7 +121,7 @@ public class BookingService {
     /**
      * 예약 확정 (결제 완료 후 호출)
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void confirmBooking(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
@@ -136,15 +131,15 @@ public class BookingService {
         }
 
         // 좌석 확정 (SeatService에 위임)
-        List<Long> seatIds = booking.getBookingSeats().stream()
-                .map(bs -> bs.getSeat().getSeatId())
-                .collect(Collectors.toList());
+//        List<Long> seatIds = booking.getBookingSeats().stream()
+//                .map(bs -> bs.getSeat().getSeatId())
+//                .collect(Collectors.toList());
 
-        boolean confirmed = seatService.confirmSeats(seatIds, booking.getUser().getUserId());
+//        boolean confirmed = seatService.confirmSeats(seatIds, booking.getUser().getUserId());
 
-        if (!confirmed) {
-            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 확정 실패");
-        }
+//        if (!confirmed) {
+//            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 확정 실패");
+//        }
 
         // 예약 상태 변경
         booking.setStatus(BookingStatus.CONFIRMED);
