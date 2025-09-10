@@ -61,6 +61,15 @@ public class SecurityConfig {
                         // 헬스체크 허용
                         .requestMatchers("/actuator/**").permitAll()
 
+                        // Swagger / OpenAPI 문서 허용
+                        .requestMatchers(
+                                "/v3/api-docs",
+                                "/v3/api-docs/**",
+                                "/v3/api-docs.yaml",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html"
+                        ).permitAll()
+
                         // 정적 리소스 및 페이지 라우팅 허용
                         .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
                         .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()  // 라우팅 경로 허용
