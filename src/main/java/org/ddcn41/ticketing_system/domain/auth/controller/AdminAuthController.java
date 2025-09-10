@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos;
 import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.EnhancedAuthResponse;
 import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.LoginRequest;
 import org.ddcn41.ticketing_system.domain.auth.service.AuthAuditService;
@@ -59,7 +60,7 @@ public class AdminAuthController {
                     responseCode = "200",
                     description = "Admin login successful",
                     content = @Content(
-                            schema = @Schema(implementation = AuthResponse.class),
+                            schema = @Schema(implementation = AuthDtos.AuthResponse.class),
                             examples = @ExampleObject(
                                     value = "{\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\"userType\":\"ADMIN\"}"
                             )
@@ -133,33 +134,7 @@ public class AdminAuthController {
      */
     @PostMapping("/logout")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(
-            summary = "Admin logout",
-            description = "Logs out an authenticated administrator and invalidates the JWT token."
-    )
-    @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses(value = {
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "Admin logout successful",
-                    content = @Content(
-                            examples = @ExampleObject(
-                                    value = "{\"message\":\"관리자 로그아웃 완료\",\"admin\":\"admin\",\"tokenTimeLeft\":\"45분\",\"timestamp\":\"...\",\"redirectTo\":\"/admin/login.html\",\"success\":true}"
-                            )
-                    )
-            ),
-            @ApiResponse(
-                    responseCode = "401",
-                    description = "Unauthorized - invalid or missing admin token",
-                    content = @Content
-            ),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "Token processing error",
-                    content = @Content
-            )
-    })
-    public ResponseEntity<?> adminLogout(HttpServletRequest request, Authentication authentication) {
+    public ResponseEntity<Map<String, Object>> adminLogout(HttpServletRequest request, Authentication authentication) {
         String adminUsername = authentication.getName();
 
         // Authorization 헤더에서 토큰 추출

@@ -15,7 +15,6 @@ import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.LoginRequest;
 import org.ddcn41.ticketing_system.domain.auth.service.AuthAuditService;
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.global.config.JwtUtil;
-import org.ddcn41.ticketing_system.dto.response.ApiResponse;
 import org.ddcn41.ticketing_system.domain.auth.dto.response.LogoutResponse;
 import org.ddcn41.ticketing_system.domain.auth.service.AuthService;
 import org.ddcn41.ticketing_system.domain.user.service.UserService;
@@ -60,7 +59,7 @@ public class AuthController {
             @ApiResponse(
                     responseCode = "200",
                     description = "Login successful",
-                    content = @Content(schema = @Schema(implementation = AuthResponse.class))
+                    content = @Content(schema = @Schema(implementation = AuthDtos.AuthResponse.class))
             ),
             @ApiResponse(
                     responseCode = "401",
@@ -132,9 +131,8 @@ public class AuthController {
         String token = tokenExtractor.extractTokenFromRequest(request);
 
         LogoutResponse logoutData = authService.processLogout(token, username);
-        ApiResponse<LogoutResponse> response = ApiResponse.success("로그아웃 완료", logoutData);
+        org.ddcn41.ticketing_system.dto.response.ApiResponse<LogoutResponse> response = org.ddcn41.ticketing_system.dto.response.ApiResponse.success("로그아웃 완료", logoutData);
 
-        // 로그아웃 로그
         authAuditService.logLogout(username);
 
         return ResponseEntity.ok(response);
