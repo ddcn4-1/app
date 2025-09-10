@@ -3,7 +3,9 @@ package org.ddcn41.ticketing_system.domain.performance.service;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
+import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
 import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceRepository;
+import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceScheduleRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +18,7 @@ import java.util.stream.Collectors;
 public class PerformanceService {
 
     private final PerformanceRepository performanceRepository;
+    private final PerformanceScheduleRepository performanceScheduleRepository;
 
     public Performance getPerformanceById(Long performanceId){
         return performanceRepository.findById(performanceId)
@@ -44,6 +47,11 @@ public class PerformanceService {
                 venue != null && !venue.trim().isEmpty() ? venue : null,
                 performanceStatus
         );
+    }
+
+    public List<PerformanceSchedule> getPerformanceSchedules(Long performanceId) {
+        // TODO: 404 exception handling - 나중에 수정 예정
+        return performanceScheduleRepository.findByPerformance_PerformanceIdOrderByShowDatetimeAsc(performanceId);
     }
 
 }
