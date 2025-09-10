@@ -22,21 +22,28 @@ public class PerformanceService {
                 .orElseThrow(()-> new EntityNotFoundException("Performance not found with id: "+performanceId));
     }
 
-    public List<Performance> getAllPerformances(){
-        return performanceRepository.findAll();
+    public List<Performance> getAllPerformances() {
+        return performanceRepository.findAllWithVenueAndSchedules();
     }
 
-    public List<Performance> searchPerformances(String title, String venue, Performance.PerformanceStatus status){
-        List<Performance> result = performanceRepository.findAll();
+    public List<Performance> searchPerformances(String name, String venue, String status) {
+        Performance.PerformanceStatus performanceStatus = null;
 
-        // Java 스트림으로 필터링
-        return result.stream()
-                .filter(p -> title == null || title.trim().isEmpty() ||
-                        p.getTitle().toLowerCase().contains(title.toLowerCase()))
-                .filter(p -> venue == null || venue.trim().isEmpty() ||
-                        p.getVenue().getVenueName().toLowerCase().contains(venue.toLowerCase()))
-                .filter(p -> status == null || p.getStatus().equals(status))
-                .collect(Collectors.toList());
+        // status 문자열을 enum으로 변환
+        if (status != null && !status.trim().isEmpty() && !status.equalsIgnoreCase("all")) {
+            try {
+                performanceStatus = Performance.PerformanceStatus.valueOf(status.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                // 잘못된 status 값인 경우 null로 처리 (모든 상태 조회)
+                performanceStatus = null;
+            }
+        }
+
+        return performanceRepository.searchPerformances(
+                name != null && !name.trim().isEmpty() ? name : null,
+                venue != null && !venue.trim().isEmpty() ? venue : null,
+                performanceStatus
+        );
     }
 
 }

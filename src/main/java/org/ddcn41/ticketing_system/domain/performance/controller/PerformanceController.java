@@ -34,18 +34,17 @@ public class PerformanceController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<PerformanceResponse>> getPerformances(
-            @RequestParam(required = false) String title,
-            @RequestParam(required = false) String venue,
-            @RequestParam(required = false) Performance.PerformanceStatus status) {
+    public ResponseEntity<List<PerformanceResponse>> searchPerformances(
+            @RequestParam(required = false, defaultValue = "") String name,
+            @RequestParam(required = false, defaultValue = "") String venue,
+            @RequestParam(required = false, defaultValue = "") String status) {
 
-        List<Performance> performances = performanceService.searchPerformances(title, venue, status);
+        List<Performance> performances = performanceService.searchPerformances(name, venue, status);
         List<PerformanceResponse> responses = performances.stream()
                 .map(PerformanceResponse::from)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(responses);
-    }
+        return ResponseEntity.ok(responses);}
 
 
 
