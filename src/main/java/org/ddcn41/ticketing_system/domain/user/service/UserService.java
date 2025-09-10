@@ -5,6 +5,7 @@ import org.ddcn41.ticketing_system.domain.user.dto.UserDto;
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -25,11 +26,16 @@ public class UserService {
 
     // 유저 생성
     public UserDto createUser(UserDto userDto) {
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+        String password = userDto.getPasswordHash();
+
+        String passwordHash = encoder.encode(password);
+
         User user = User.builder()
                 .username(userDto.getUsername())
                 .email(userDto.getEmail())
                 .name(userDto.getName())
-                .passwordHash(userDto.getPasswordHash())
+                .passwordHash(passwordHash)
                 .phone(userDto.getPhone())
                 .role(userDto.getRole())
                 .build();
