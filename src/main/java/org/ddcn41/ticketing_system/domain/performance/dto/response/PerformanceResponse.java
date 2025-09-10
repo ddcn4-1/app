@@ -22,6 +22,7 @@ public class PerformanceResponse {
     private String posterUrl;
     private BigDecimal price;
     private Performance.PerformanceStatus status;
+    private String description;
     private String startDate;
     private String endDate;
     private Integer runningTime;
@@ -48,6 +49,7 @@ public class PerformanceResponse {
                 .runningTime(performance.getRunningTime())
                 .venueAddress(performance.getVenue().getAddress())
                 .schedules(scheduleResponses)
+                .description(performance.getDescription())
                 .build();
     }
 
@@ -62,20 +64,13 @@ public class PerformanceResponse {
         private String status;
 
         public static ScheduleResponse from(PerformanceSchedule schedule) {
-            // ScheduleStatus를 프론트엔드에서 기대하는 형식으로 변환
-            String statusStr;
-            switch (schedule.getStatus()) {
-                case SOLDOUT:
-                    statusStr = "SOLDOUT";
-                    break;
-                case CLOSED:
-                    statusStr = "CLOSED";
-                    break;
-                case OPEN:
-                default:
-                    statusStr = schedule.getAvailableSeats() > 0 ? "OPEN" : "SOLDOUT";
-                    break;
-            }
+
+            String statusStr = switch (schedule.getStatus()) {
+                case OPEN -> "SCHEDULED";  // Active/bookable shows
+                case SOLDOUT -> "SCHEDULED";  // Still scheduled but no seats
+                case CLOSED -> "COMPLETED";  // Show has ended
+                default -> "SCHEDULED";
+            };
 
             return ScheduleResponse.builder()
                     .scheduleId(schedule.getScheduleId())
