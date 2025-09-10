@@ -18,4 +18,5 @@ public class UserDto {
     private String passwordHash;
     private String phone;
     private User.Role role;
+    private User.Status status;
 }

@@ -93,6 +93,7 @@ public class UserService {
                 .passwordHash(user.getPasswordHash())
                 .phone(user.getPhone())
                 .role(user.getRole())
+                .status(user.getStatus())
                 .build();
     }
 }
