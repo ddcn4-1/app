@@ -6,7 +6,9 @@ import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -94,5 +96,14 @@ public class UserService {
                 .phone(user.getPhone())
                 .role(user.getRole())
                 .build();
+    }
+
+    @Transactional
+    public User updateUserLoginTime(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다: " + username));
+
+        user.setLastLogin(LocalDateTime.now());
+        return userRepository.save(user);
     }
 }
