@@ -82,7 +82,7 @@ public class SecurityConfig {
 
 
                         // 공연조회 API 허용
-                        .requestMatchers("/api/v1/performances/**").permitAll()
+                        .requestMatchers("/v1/performances/**").permitAll()
                         // 테스트용 공연장 조회 API
                         .requestMatchers("/api/venues").permitAll()
 
