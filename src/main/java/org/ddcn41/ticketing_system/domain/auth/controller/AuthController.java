@@ -2,9 +2,11 @@ package org.ddcn41.ticketing_system.domain.auth.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.AuthResponse;
+import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos;
+import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.EnhancedAuthResponse;
 import org.ddcn41.ticketing_system.domain.auth.dto.AuthDtos.LoginRequest;
 import org.ddcn41.ticketing_system.domain.auth.service.AuthAuditService;
+import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.global.config.JwtUtil;
 import org.ddcn41.ticketing_system.dto.response.ApiResponse;
 import org.ddcn41.ticketing_system.domain.auth.dto.response.LogoutResponse;
@@ -16,6 +18,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+
 
 
 @RestController
@@ -42,26 +45,39 @@ public class AuthController {
      * 일반 사용자 로그인 (관리자도 이 엔드포인트 사용 가능하지만 /admin/auth/login 권장)
      */
     @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody LoginRequest dto) {
-        // 이메일인지 사용자명인지 판단해서 실제 사용자명 가져오기
-        String actualUsername = userService.resolveUsernameFromEmailOrUsername(dto.getUsernameOrEmail());
+    public ResponseEntity<EnhancedAuthResponse> login(@Valid @RequestBody LoginRequest dto) {
+        try {
+            String actualUsername = userService.resolveUsernameFromEmailOrUsername(dto.getUsernameOrEmail());
 
-        Authentication auth = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(actualUsername, dto.getPassword())
-        );
+            Authentication auth = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(actualUsername, dto.getPassword())
+            );
 
-        String token = jwtUtil.generate(auth.getName());
-        String userRole = userService.getUserRole(actualUsername);
+            String token = jwtUtil.generate(auth.getName());
 
-        // 로그인 성공 로그
-        authAuditService.logLoginSuccess(actualUsername);
+            // 사용자 정보 조회 및 마지막 로그인 시간 업데이트
+            User user = userService.updateUserLoginTime(actualUsername);
 
-        return new AuthResponse(token, userRole);
+            authAuditService.logLoginSuccess(actualUsername);
+
+            EnhancedAuthResponse response = EnhancedAuthResponse.success(token, user);
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            String actualUsername;
+            try {
+                actualUsername = userService.resolveUsernameFromEmailOrUsername(dto.getUsernameOrEmail());
+            } catch (Exception ex) {
+                actualUsername = dto.getUsernameOrEmail();
+            }
+
+            authAuditService.logLoginFailure(actualUsername, e.getMessage());
+
+            AuthDtos.EnhancedAuthResponse errorResponse = EnhancedAuthResponse.failure("로그인 실패: " + e.getMessage());
+            return ResponseEntity.status(401).body(errorResponse);
+        }
     }
 
-    /**
-     * 일반 사용자 로그아웃
-     */
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<LogoutResponse>> logout(
             HttpServletRequest request,
@@ -73,7 +89,6 @@ public class AuthController {
         LogoutResponse logoutData = authService.processLogout(token, username);
         ApiResponse<LogoutResponse> response = ApiResponse.success("로그아웃 완료", logoutData);
 
-        // 로그아웃 로그
         authAuditService.logLogout(username);
 
         return ResponseEntity.ok(response);
