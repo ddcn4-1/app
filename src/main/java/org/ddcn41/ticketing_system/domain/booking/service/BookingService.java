@@ -75,11 +75,20 @@ public class BookingService {
                     "선택한 좌석이 요청된 공연 스케줄과 일치하지 않습니다");
         }
 
-        // 좌석 가용성 확인 (간단한 체크만)
+        // 좌석 가용성 확인 및 낙관적 락으로 좌석 상태 변경
         for (ScheduleSeat seat : requestedSeats) {
-            if (seat.getStatus() == ScheduleSeat.SeatStatus.BOOKED) {
-                throw new ResponseStatusException(BAD_REQUEST, "이미 예약된 좌석이 포함되어 있습니다");
+            if (seat.getStatus() != ScheduleSeat.SeatStatus.AVAILABLE) {
+                throw new ResponseStatusException(BAD_REQUEST, "예약 불가능한 좌석이 포함되어 있습니다: " + seat.getSeatId());
             }
+            // 낙관적 락을 활용하여 좌석 상태를 BOOKED로 변경
+            seat.setStatus(ScheduleSeat.SeatStatus.BOOKED);
+        }
+
+        // 낙관적 락으로 좌석 상태 저장 (버전 충돌 시 OptimisticLockException 발생)
+        try {
+            scheduleSeatRepository.saveAll(requestedSeats);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
+            throw new ResponseStatusException(BAD_REQUEST, "다른 사용자가 먼저 예약한 좌석이 있습니다. 다시 시도해주세요.");
         }
 
         // 이미 검증된 requestedSeats 사용 (중복 조회 방지)
@@ -130,20 +139,28 @@ public class BookingService {
             throw new ResponseStatusException(BAD_REQUEST, "확정할 수 없는 예약 상태입니다");
         }
 
-        // 좌석 확정 (SeatService에 위임)
-//        List<Long> seatIds = booking.getBookingSeats().stream()
-//                .map(bs -> bs.getSeat().getSeatId())
-//                .collect(Collectors.toList());
+        // 좌석 확정 (낙관적 락 사용)
+        List<ScheduleSeat> seats = booking.getBookingSeats().stream()
+                .map(bs -> bs.getSeat())
+                .collect(Collectors.toList());
 
-//        boolean confirmed = seatService.confirmSeats(seatIds, booking.getUser().getUserId());
+        // 좌석이 PENDING 상태에서만 CONFIRMED로 변경 가능
+        for (ScheduleSeat seat : seats) {
+            if (seat.getStatus() != ScheduleSeat.SeatStatus.BOOKED) {
+                throw new ResponseStatusException(BAD_REQUEST, "확정할 수 없는 좌석 상태입니다");
+            }
+        }
 
-//        if (!confirmed) {
-//            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 확정 실패");
-//        }
-
-        // 예약 상태 변경
-        booking.setStatus(BookingStatus.CONFIRMED);
-        bookingRepository.save(booking);
+        try {
+            // 낙관적 락으로 좌석 상태는 BOOKED를 유지 (이미 예약된 상태)
+            scheduleSeatRepository.saveAll(seats);
+            
+            // 예약 상태 변경
+            booking.setStatus(BookingStatus.CONFIRMED);
+            bookingRepository.save(booking);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
+            throw new ResponseStatusException(BAD_REQUEST, "좌석 상태가 변경되었습니다. 다시 시도해주세요.");
+        }
     }
 
     /**
