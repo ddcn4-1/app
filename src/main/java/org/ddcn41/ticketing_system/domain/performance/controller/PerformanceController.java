@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceResponse;
+import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceSchedulesResponse;
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.service.PerformanceService;
 import org.springframework.http.ResponseEntity;
@@ -52,17 +53,47 @@ public class PerformanceController {
             @ApiResponse(responseCode = "200", description = "Success get a performance", content = @Content(schema = @Schema(implementation = PerformanceResponse.class),mediaType = "application/json"))
     })
     @GetMapping("/search")
-    public ResponseEntity<List<PerformanceResponse>> getPerformances(
-            @RequestParam(required = false) String title,
-            @RequestParam(required = false) String venue,
-            @RequestParam(required = false) Performance.PerformanceStatus status) {
+    public ResponseEntity<List<PerformanceResponse>> searchPerformances(
+            @RequestParam(required = false, defaultValue = "") String name,
+            @RequestParam(required = false, defaultValue = "") String venue,
+            @RequestParam(required = false, defaultValue = "") String status) {
 
-        List<Performance> performances = performanceService.searchPerformances(title, venue, status);
+        List<Performance> performances = performanceService.searchPerformances(name, venue, status);
         List<PerformanceResponse> responses = performances.stream()
                 .map(PerformanceResponse::from)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(responses);
+        return ResponseEntity.ok(responses);}
+
+    @Operation(
+        summary = "공연 회차 목록", 
+        description = "특정 공연의 모든 회차 목록을 조회합니다. 각 회차의 상세 정보(일시, 좌석 현황, 상태)를 포함합니다."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "회차 목록 조회 성공",
+                content = @Content(
+                    mediaType = "application/json",
+                    schema = @Schema(implementation = PerformanceSchedulesResponse.class)
+                )
+            ),
+            @ApiResponse(
+                responseCode = "404", 
+                description = "존재하지 않는 공연 ID 또는 회차가 없는 공연",
+                content = @Content(mediaType = "application/json")
+            )
+    })
+    @GetMapping("/{performanceId}/schedules")
+    public ResponseEntity<PerformanceSchedulesResponse> getPerformanceSchedules(
+            @PathVariable long performanceId) {
+        List<org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule> schedules = performanceService.getPerformanceSchedules(performanceId);
+        List<PerformanceResponse.ScheduleResponse> scheduleResponses = schedules.stream()
+                .map(PerformanceResponse.ScheduleResponse::from)
+                .collect(Collectors.toList());
+        
+        PerformanceSchedulesResponse response = PerformanceSchedulesResponse.builder()
+                .schedules(scheduleResponses)
+                .build();
+        return ResponseEntity.ok(response);
     }
 
 
