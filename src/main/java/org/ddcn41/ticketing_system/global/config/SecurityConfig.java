@@ -83,6 +83,10 @@ public class SecurityConfig {
 
                         // 공연조회 API 허용
                         .requestMatchers("/v1/performances/**").permitAll()
+                        // 예매 관련 API 허용
+                        .requestMatchers("/v1/bookings/**").permitAll()
+                        // 좌석 조회 API 허용 (스케줄별 좌석 가용성 조회)
+                        .requestMatchers("/api/v1/schedules/**").permitAll()
                         // 테스트용 공연장 조회 API
                         .requestMatchers("/api/venues").permitAll()
 
