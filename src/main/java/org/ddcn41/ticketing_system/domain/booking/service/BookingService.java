@@ -190,7 +190,7 @@ public class BookingService {
     /**
      * 예약 취소
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CancelBooking200ResponseDto cancelBooking(Long bookingId, CancelBookingRequestDto req) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
@@ -231,7 +231,7 @@ public class BookingService {
     /**
      * 예약 만료 처리 (스케줄러에서 호출)
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void expireBooking(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
