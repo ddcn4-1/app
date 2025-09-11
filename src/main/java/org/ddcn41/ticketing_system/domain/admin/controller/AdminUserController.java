@@ -9,7 +9,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.domain.user.dto.UserDto;
+import org.ddcn41.ticketing_system.domain.user.dto.UserCreateRequestDto;
+import org.ddcn41.ticketing_system.domain.user.dto.UserResponseDto;
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.service.UserService;
 import org.springframework.http.HttpStatus;
@@ -34,11 +35,11 @@ public class AdminUserController {
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "OK",
-                    content = @Content(schema = @Schema(implementation = UserDto.class))),
+                    content = @Content(schema = @Schema(implementation = UserResponseDto.class))),
             @ApiResponse(responseCode = "401", description = "Unauthorized", content = @Content)
     })
-    public ResponseEntity<List<UserDto>> getAllUsers() {
-        List<UserDto> users = userService.getAllUsers();
+    public ResponseEntity<List<UserResponseDto>> getAllUsers() {
+        List<UserResponseDto> users = userService.getAllUsers();
         return ResponseEntity.ok(users);
     }
 
@@ -48,13 +49,13 @@ public class AdminUserController {
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "User created",
-                    content = @Content(schema = @Schema(implementation = UserDto.class))),
+                    content = @Content(schema = @Schema(implementation = UserCreateRequestDto.class))),
             @ApiResponse(responseCode = "400", description = "Invalid request", content = @Content),
             @ApiResponse(responseCode = "401", description = "Unauthorized", content = @Content),
             @ApiResponse(responseCode = "404", description = "Related resource not found", content = @Content)
     })
-    public ResponseEntity<UserDto> createUser(@RequestBody UserDto userDto) {
-        UserDto createdUser = userService.createUser(userDto);
+    public ResponseEntity<UserResponseDto> createUser(@RequestBody UserCreateRequestDto userCreateRequestDto) {
+        UserResponseDto createdUser = userService.createUser(userCreateRequestDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
 
@@ -64,12 +65,12 @@ public class AdminUserController {
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "User deleted",
-                    content = @Content(schema = @Schema(implementation = UserDto.class))),
+                    content = @Content(schema = @Schema(implementation = UserResponseDto.class))),
             @ApiResponse(responseCode = "400", description = "Invalid request", content = @Content),
             @ApiResponse(responseCode = "401", description = "Unauthorized", content = @Content),
             @ApiResponse(responseCode = "404", description = "Related resource not found", content = @Content)
     })
-    public ResponseEntity<UserDto> deleteUser(
+    public ResponseEntity<UserResponseDto> deleteUser(
             @Parameter(description = "User ID", required = true)
             @PathVariable Long userId) {
         userService.deleteUser(userId);
@@ -78,12 +79,19 @@ public class AdminUserController {
 
     // 유저 검색
     @GetMapping("/search")
-    public ResponseEntity<List<UserDto>> searchUsers(
+    @Operation(summary = "Search user", description = "Search using username, role, and status")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "OK",
+                    content = @Content(schema = @Schema(implementation = UserResponseDto.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized", content = @Content)
+    })
+    public ResponseEntity<List<UserResponseDto>> searchUsers(
             @RequestParam(required = false) String username,
             @RequestParam(required = false) User.Role role,
             @RequestParam(required = false) User.Status status) {
 
-        List<UserDto> users = userService.searchUsers(username, role, status);
+        List<UserResponseDto> users = userService.searchUsers(username, role, status);
 
         return ResponseEntity.ok(users);
     }

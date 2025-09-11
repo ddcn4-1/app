@@ -1,7 +1,8 @@
 package org.ddcn41.ticketing_system.domain.user.service;
 
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.domain.user.dto.UserDto;
+import org.ddcn41.ticketing_system.domain.user.dto.UserCreateRequestDto;
+import org.ddcn41.ticketing_system.domain.user.dto.UserResponseDto;
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -21,29 +22,29 @@ public class UserService {
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     //  모든 유저 조회
-    public List<UserDto> getAllUsers() {
+    public List<UserResponseDto> getAllUsers() {
         return userRepository.findAll().stream()
-                .map(this::convertToDto)
+                .map(this::convertToResponseDto)
                 .collect(Collectors.toList());
     }
 
     // 유저 생성
-    public UserDto createUser(UserDto userDto) {
-        String password = userDto.getPasswordHash();
+    public UserResponseDto createUser(UserCreateRequestDto userCreateRequestDto) {
+        String password = userCreateRequestDto.getPassword();
 
         String passwordHash = encoder.encode(password);
 
         User user = User.builder()
-                .username(userDto.getUsername())
-                .email(userDto.getEmail())
-                .name(userDto.getName())
+                .username(userCreateRequestDto.getUsername())
+                .email(userCreateRequestDto.getEmail())
+                .name(userCreateRequestDto.getName())
                 .passwordHash(passwordHash)
-                .phone(userDto.getPhone())
-                .role(userDto.getRole())
+                .phone(userCreateRequestDto.getPhone())
+                .role(userCreateRequestDto.getRole())
                 .build();
 
         User savedUser = userRepository.save(user);
-        return convertToDto(savedUser);
+        return convertToResponseDto(savedUser);
     }
 
     // 유저 삭제
@@ -55,8 +56,8 @@ public class UserService {
     }
 
     // 유저 검색
-    public List<UserDto> searchUsers(String username, User.Role role, User.Status status) {
-        List<UserDto> result = getAllUsers();
+    public List<UserResponseDto> searchUsers(String username, User.Role role, User.Status status) {
+        List<UserResponseDto> result = getAllUsers();
 
         return result.stream()
                 .filter(u -> username == null || username.trim().isEmpty() ||
@@ -104,8 +105,8 @@ public class UserService {
                 .orElseThrow(() -> new UsernameNotFoundException("해당 이메일의 사용자를 찾을 수 없습니다: " + email));
     }
 
-    private UserDto convertToDto(User user) {
-        return UserDto.builder()
+    private UserResponseDto convertToResponseDto(User user) {
+        return UserResponseDto.builder()
                 .userId(user.getUserId())
                 .username(user.getUsername())
                 .email(user.getEmail())

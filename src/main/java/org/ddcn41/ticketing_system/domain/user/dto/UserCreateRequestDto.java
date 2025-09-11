@@ -10,12 +10,12 @@ import org.ddcn41.ticketing_system.domain.user.entity.User;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class UserDto {
+public class UserCreateRequestDto {
     private Long userId;
     private String username;
     private String email;
     private String name;
-    private String passwordHash;
+    private String password;
     private String phone;
     private User.Role role;
     private User.Status status;
