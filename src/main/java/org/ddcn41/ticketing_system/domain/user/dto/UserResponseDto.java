@@ -15,7 +15,6 @@ public class UserResponseDto {
     private String username;
     private String email;
     private String name;
-    private String passwordHash;
     private String phone;
     private User.Role role;
     private User.Status status;

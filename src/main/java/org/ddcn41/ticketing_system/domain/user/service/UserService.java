@@ -111,7 +111,6 @@ public class UserService {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .name(user.getName())
-                .passwordHash(user.getPasswordHash())
                 .phone(user.getPhone())
                 .role(user.getRole())
                 .status(user.getStatus())
