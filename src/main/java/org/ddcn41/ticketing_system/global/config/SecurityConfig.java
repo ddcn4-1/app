@@ -80,7 +80,8 @@ public class SecurityConfig {
                         .requestMatchers("/admin/auth/**").hasRole("ADMIN")
                         .requestMatchers("/admin/api/**").hasRole("ADMIN")
                         
-                        .requestMatchers("/v1/admin/users/**").hasRole("ADMIN")
+                        // ADMIN 또는 DEVOPS 권한만 유저 API 허용
+                        .requestMatchers("/v1/admin/users/**").hasAnyRole("ADMIN", "DEVOPS")
 
 
                         // 공연조회 API 허용
