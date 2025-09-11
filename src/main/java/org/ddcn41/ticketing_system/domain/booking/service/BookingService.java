@@ -80,8 +80,8 @@ public class BookingService {
             if (seat.getStatus() != ScheduleSeat.SeatStatus.AVAILABLE) {
                 throw new ResponseStatusException(BAD_REQUEST, "예약 불가능한 좌석이 포함되어 있습니다: " + seat.getSeatId());
             }
-            // 낙관적 락을 활용하여 좌석 상태를 BOOKED로 변경
-            seat.setStatus(ScheduleSeat.SeatStatus.BOOKED);
+            // 예약 생성 시 좌석 상태를 LOCKED로 변경
+            seat.setStatus(ScheduleSeat.SeatStatus.LOCKED);
         }
 
         // 낙관적 락으로 좌석 상태 저장 (버전 충돌 시 OptimisticLockException 발생)
@@ -98,7 +98,7 @@ public class BookingService {
                 .map(ScheduleSeat::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        String bookingNumber = "B-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        String bookingNumber = "DDCN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
 
         Booking booking = Booking.builder()
                 .bookingNumber(bookingNumber)
@@ -144,15 +144,17 @@ public class BookingService {
                 .map(bs -> bs.getSeat())
                 .collect(Collectors.toList());
 
-        // 좌석이 PENDING 상태에서만 CONFIRMED로 변경 가능
+        // 좌석이 LOCKED 상태에서만 BOOKED로 변경 가능
         for (ScheduleSeat seat : seats) {
-            if (seat.getStatus() != ScheduleSeat.SeatStatus.BOOKED) {
+            if (seat.getStatus() != ScheduleSeat.SeatStatus.LOCKED) {
                 throw new ResponseStatusException(BAD_REQUEST, "확정할 수 없는 좌석 상태입니다");
             }
+            // 좌석 상태를 BOOKED로 변경
+            seat.setStatus(ScheduleSeat.SeatStatus.BOOKED);
         }
 
         try {
-            // 낙관적 락으로 좌석 상태는 BOOKED를 유지 (이미 예약된 상태)
+            // 낙관적 락으로 좌석 상태를 LOCKED에서 BOOKED로 변경
             scheduleSeatRepository.saveAll(seats);
             
             // 예약 상태 변경
@@ -164,12 +166,31 @@ public class BookingService {
     }
 
     /**
-     * 예약 상세 조회
+     * 예약 상세 조회 (관리자용 - 소유권 검증 없음)
      */
     @Transactional(readOnly = true)
     public GetBookingDetail200ResponseDto getBookingDetail(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
+        return toDetailDto(booking);
+    }
+
+    /**
+     * 사용자 예약 상세 조회 (소유권 검증 포함)
+     */
+    @Transactional(readOnly = true)
+    public GetBookingDetail200ResponseDto getUserBookingDetail(String username, Long bookingId) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "사용자 인증 실패"));
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
+
+        // 소유권 검증
+        if (!booking.getUser().getUserId().equals(user.getUserId())) {
+            throw new ResponseStatusException(FORBIDDEN, "해당 예매에 접근할 권한이 없습니다");
+        }
+
         return toDetailDto(booking);
     }
 
