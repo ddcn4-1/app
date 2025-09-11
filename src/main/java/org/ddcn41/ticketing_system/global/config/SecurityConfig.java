@@ -82,8 +82,8 @@ public class SecurityConfig {
                         .requestMatchers("/admin/api/**").hasRole("ADMIN")
                         
                         .requestMatchers("/v1/admin/users/**").hasRole("ADMIN")
-                        .requestMatchers("/v1/admin/bookings/*/confirm").permitAll()  // 임시로 전체 허용,   Spring Security 매칭 규칙: - First Match Wins (첫 번째 매칭이 승리)
-                         .requestMatchers("/v1/admin/bookings/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/admin/bookings/**").permitAll()  // 임시로 전체 허용 (개발/테스트용)
+                        // .requestMatchers("/v1/admin/bookings/**").hasRole("ADMIN")
 
                         // 공연조회 API 허용
                         .requestMatchers("/v1/performances/**").permitAll()

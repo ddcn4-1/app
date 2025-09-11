@@ -18,7 +18,14 @@ public class GetBookingDetail200ResponseDto {
     private Long bookingId;
     private String bookingNumber;
     private Long userId;
+    private String userName; // from User.name
+    private String userPhone; // from User.phone
     private Long scheduleId;
+    private String performanceTitle; // from PerformanceSchedule.performance.title
+    private String venueName; // from PerformanceSchedule.performance.venue.venueName
+    private OffsetDateTime showDate; // from PerformanceSchedule.showDatetime
+    private String seatCode; // concatenated seat_row + seat_number
+    private String seatZone; // from seat.seatZone
     private Integer seatCount;
     private Double totalAmount;
 
