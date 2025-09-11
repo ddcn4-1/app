@@ -47,6 +47,11 @@ public class User {
     @Builder.Default
     private Role role = Role.USER;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    @Builder.Default
+    private Status status = Status.ACTIVE;
+
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
 
@@ -65,6 +70,10 @@ public class User {
     private List<SeatLock> seatLocks;
 
     public enum Role {
-        USER, ADMIN
+        USER, ADMIN, DEVOPS, DEV
+    }
+
+    public enum Status {
+        ACTIVE, INACTIVE, SUSPENDED
     }
 }
