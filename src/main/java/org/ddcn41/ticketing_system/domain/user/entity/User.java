@@ -50,7 +50,7 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     @Builder.Default
-    private Status status = Status.active;
+    private Status status = Status.ACTIVE;
 
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
@@ -70,10 +70,10 @@ public class User {
     private List<SeatLock> seatLocks;
 
     public enum Role {
-        USER, ADMIN, DevOps, Dev
+        USER, ADMIN, DEVOPS, DEV
     }
 
     public enum Status {
-        active, inactive, suspended
+        ACTIVE, INACTIVE, SUSPENDED
     }
 }
