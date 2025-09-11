@@ -13,7 +13,7 @@ import java.util.Optional;
 @Repository
 public interface PerformanceRepository extends JpaRepository<Performance, Long> {
 
-    @EntityGraph(attributePaths = {"venue"})
+    @EntityGraph(attributePaths = {"venue", "schedules"})
     @Override
     Optional<Performance> findById(Long id);
 
