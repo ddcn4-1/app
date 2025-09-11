@@ -1,4 +1,4 @@
-package org.ddcn41.ticketing_system.config;
+package org.ddcn41.ticketing_system.global.config;
 
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
