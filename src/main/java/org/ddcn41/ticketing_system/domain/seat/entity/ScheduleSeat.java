@@ -46,6 +46,9 @@ public class ScheduleSeat {
     @Builder.Default
     private SeatStatus status = SeatStatus.AVAILABLE;
 
+    @Version
+    private Long version;
+
     @CreationTimestamp
     @Column(name = "created_at")
     private LocalDateTime createdAt;

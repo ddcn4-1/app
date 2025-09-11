@@ -49,7 +49,7 @@ public class BookingService {
 
     private final SeatService seatService;
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CreateBookingResponseDto createBooking(String username, CreateBookingRequestDto req) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "사용자 인증 실패"));
@@ -75,16 +75,20 @@ public class BookingService {
                     "선택한 좌석이 요청된 공연 스케줄과 일치하지 않습니다");
         }
 
-        // 좌석 가용성 확인 (SeatService에 위임)
-        boolean seatsAvailable = seatService.areSeatsAvailableForUser(req.getSeatIds(), user.getUserId());
-        if (!seatsAvailable) {
-            throw new ResponseStatusException(BAD_REQUEST, "선택한 좌석이 예약 불가능합니다");
+        // 좌석 가용성 확인 및 낙관적 락으로 좌석 상태 변경
+        for (ScheduleSeat seat : requestedSeats) {
+            if (seat.getStatus() != ScheduleSeat.SeatStatus.AVAILABLE) {
+                throw new ResponseStatusException(BAD_REQUEST, "예약 불가능한 좌석이 포함되어 있습니다: " + seat.getSeatId());
+            }
+            // 낙관적 락을 활용하여 좌석 상태를 BOOKED로 변경
+            seat.setStatus(ScheduleSeat.SeatStatus.BOOKED);
         }
 
-        // 좌석 락
-        var lockResponse = seatService.lockSeats(req.getSeatIds(), user.getUserId(), req.getQueueToken());
-        if (!lockResponse.isSuccess()) {
-            throw new ResponseStatusException(BAD_REQUEST, lockResponse.getMessage());
+        // 낙관적 락으로 좌석 상태 저장 (버전 충돌 시 OptimisticLockException 발생)
+        try {
+            scheduleSeatRepository.saveAll(requestedSeats);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
+            throw new ResponseStatusException(BAD_REQUEST, "다른 사용자가 먼저 예약한 좌석이 있습니다. 다시 시도해주세요.");
         }
 
         // 이미 검증된 requestedSeats 사용 (중복 조회 방지)
@@ -103,7 +107,7 @@ public class BookingService {
                 .seatCount(seats.size())
                 .totalAmount(total)
                 .status(BookingStatus.PENDING) // 결제 전 PENDING
-                .expiresAt(lockResponse.getExpiresAt()) // 락 만료 시간 동일
+//                .expiresAt(lockResponse.getExpiresAt()) // 락 만료 시간 동일
                 .build();
 
         Booking saved = bookingRepository.save(booking);
@@ -126,7 +130,7 @@ public class BookingService {
     /**
      * 예약 확정 (결제 완료 후 호출)
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void confirmBooking(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
@@ -135,20 +139,28 @@ public class BookingService {
             throw new ResponseStatusException(BAD_REQUEST, "확정할 수 없는 예약 상태입니다");
         }
 
-        // 좌석 확정 (SeatService에 위임)
-        List<Long> seatIds = booking.getBookingSeats().stream()
-                .map(bs -> bs.getSeat().getSeatId())
+        // 좌석 확정 (낙관적 락 사용)
+        List<ScheduleSeat> seats = booking.getBookingSeats().stream()
+                .map(bs -> bs.getSeat())
                 .collect(Collectors.toList());
 
-        boolean confirmed = seatService.confirmSeats(seatIds, booking.getUser().getUserId());
-
-        if (!confirmed) {
-            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 확정 실패");
+        // 좌석이 PENDING 상태에서만 CONFIRMED로 변경 가능
+        for (ScheduleSeat seat : seats) {
+            if (seat.getStatus() != ScheduleSeat.SeatStatus.BOOKED) {
+                throw new ResponseStatusException(BAD_REQUEST, "확정할 수 없는 좌석 상태입니다");
+            }
         }
 
-        // 예약 상태 변경
-        booking.setStatus(BookingStatus.CONFIRMED);
-        bookingRepository.save(booking);
+        try {
+            // 낙관적 락으로 좌석 상태는 BOOKED를 유지 (이미 예약된 상태)
+            scheduleSeatRepository.saveAll(seats);
+            
+            // 예약 상태 변경
+            booking.setStatus(BookingStatus.CONFIRMED);
+            bookingRepository.save(booking);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
+            throw new ResponseStatusException(BAD_REQUEST, "좌석 상태가 변경되었습니다. 다시 시도해주세요.");
+        }
     }
 
     /**
@@ -195,7 +207,7 @@ public class BookingService {
     /**
      * 예약 취소
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CancelBooking200ResponseDto cancelBooking(Long bookingId, CancelBookingRequestDto req) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
@@ -236,7 +248,7 @@ public class BookingService {
     /**
      * 예약 만료 처리 (스케줄러에서 호출)
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void expireBooking(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
