@@ -52,6 +52,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authz -> authz
                         // 인증 관련 엔드포인트 허용
@@ -60,6 +61,15 @@ public class SecurityConfig {
 
                         // 헬스체크 허용
                         .requestMatchers("/actuator/**").permitAll()
+
+                        // Swagger / OpenAPI 문서 허용
+                        .requestMatchers(
+                                "/v3/api-docs",
+                                "/v3/api-docs/**",
+                                "/v3/api-docs.yaml",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html"
+                        ).permitAll()
 
                         // 정적 리소스 및 페이지 라우팅 허용
                         .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
@@ -74,7 +84,11 @@ public class SecurityConfig {
 
 
                         // 공연조회 API 허용
-                        .requestMatchers("/api/v1/performances/**").permitAll()
+                        .requestMatchers("/v1/performances/**").permitAll()
+                        // 예매 관련 API 허용
+                        .requestMatchers("/v1/bookings/**").permitAll()
+                        // 좌석 조회 API 허용 (스케줄별 좌석 가용성 조회)
+                        .requestMatchers("/api/v1/schedules/**").permitAll()
                         // 테스트용 공연장 조회 API
                         .requestMatchers("/api/venues").permitAll()
 
@@ -95,7 +109,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);

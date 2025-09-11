@@ -6,8 +6,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
-import org.ddcn41.ticketing_system.entity.Payment;
-import org.ddcn41.ticketing_system.entity.Refund;
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
