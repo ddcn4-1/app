@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     //  모든 유저 조회
     public List<UserDto> getAllUsers() {
@@ -28,7 +29,6 @@ public class UserService {
 
     // 유저 생성
     public UserDto createUser(UserDto userDto) {
-        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
         String password = userDto.getPasswordHash();
 
         String passwordHash = encoder.encode(password);
