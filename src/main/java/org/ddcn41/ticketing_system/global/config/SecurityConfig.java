@@ -81,7 +81,6 @@ public class SecurityConfig {
                         .requestMatchers("/admin/auth/**").hasRole("ADMIN")
                         .requestMatchers("/admin/api/**").hasRole("ADMIN")
                         
-                        .requestMatchers("/v1/admin/users/**").hasRole("ADMIN")
                         .requestMatchers("/v1/admin/bookings/**").permitAll()  // 임시로 전체 허용 (개발/테스트용)
                         // .requestMatchers("/v1/admin/bookings/**").hasRole("ADMIN")
                         .requestMatchers("/v1/admin/users/**").hasAnyRole("ADMIN", "DEVOPS")
