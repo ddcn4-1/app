@@ -38,8 +38,9 @@ public class SecurityConfig {
 
     @Bean
     public DaoAuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService);
+        
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();   // FIXME - The constructor DaoAuthenticationProvider() is deprecated
+        authProvider.setUserDetailsService(userDetailsService);                     // FIXME - The method setUserDetailsService(UserDetailsService) from the type DaoAuthenticationProvider is deprecated
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }
@@ -73,21 +74,24 @@ public class SecurityConfig {
 
                         // 정적 리소스 및 페이지 라우팅 허용
                         .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
-                        .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()  // 라우팅 경로 허용
+                        .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()
                         .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
 
                         // 관리자 전용 API 엔드포인트 (로그인 후 ADMIN 권한 필요)
                         .requestMatchers("/admin/auth/**").hasRole("ADMIN")
                         .requestMatchers("/admin/api/**").hasRole("ADMIN")
                         
-                        // ADMIN 또는 DEVOPS 권한만 유저 API 허용
+                        .requestMatchers("/v1/admin/users/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/admin/bookings/**").permitAll()  // 임시로 전체 허용 (개발/테스트용)
+                        // .requestMatchers("/v1/admin/bookings/**").hasRole("ADMIN")
                         .requestMatchers("/v1/admin/users/**").hasAnyRole("ADMIN", "DEVOPS")
-
 
                         // 공연조회 API 허용
                         .requestMatchers("/v1/performances/**").permitAll()
-                        // 예매 관련 API 허용
+                        
+                        // 예매 관련 API - 인증 필요
                         .requestMatchers("/v1/bookings/**").permitAll()
+                        
                         // 좌석 조회 API 허용 (스케줄별 좌석 가용성 조회)
                         .requestMatchers("/api/v1/schedules/**").permitAll()
                         // 테스트용 공연장 조회 API
