@@ -23,6 +23,30 @@ public class ScheduleSeatInitializationService {
     private final ScheduleSeatRepository scheduleSeatRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /**
+     * 모든 스케줄에 대해 좌석 초기화 수행
+     */
+    @Transactional
+    public List<InitializeSeatsResponse> initializeAll(boolean dryRun) {
+        List<PerformanceSchedule> schedules = scheduleRepository.findAll();
+        List<InitializeSeatsResponse> results = new ArrayList<>();
+        for (PerformanceSchedule s : schedules) {
+            try {
+                results.add(initialize(s.getScheduleId(), dryRun));
+            } catch (RuntimeException ex) {
+                // 개별 스케줄 실패는 전체 중단 없이 계속 진행
+                results.add(InitializeSeatsResponse.builder()
+                        .scheduleId(s.getScheduleId())
+                        .created(0)
+                        .total(Math.toIntExact(scheduleSeatRepository.countBySchedule_ScheduleId(s.getScheduleId())))
+                        .available(scheduleSeatRepository.countAvailableSeatsByScheduleId(s.getScheduleId()))
+                        .dryRun(dryRun)
+                        .build());
+            }
+        }
+        return results;
+    }
+
     @Transactional
     public InitializeSeatsResponse initialize(Long scheduleId, boolean dryRun) {
         PerformanceSchedule schedule = scheduleRepository.findById(scheduleId)
@@ -45,18 +69,34 @@ public class ScheduleSeatInitializationService {
         }
 
         JsonNode sections = root.path("sections");
+        // pricing map: grade -> price
+        java.util.Map<String, java.math.BigDecimal> pricing = new java.util.HashMap<>();
+        JsonNode pricingNode = root.path("pricing");
+        if (pricingNode.isObject()) {
+            java.util.Iterator<java.util.Map.Entry<String, JsonNode>> it = pricingNode.fields();
+            while (it.hasNext()) {
+                java.util.Map.Entry<String, JsonNode> e = it.next();
+                try {
+                    pricing.put(e.getKey(), new java.math.BigDecimal(e.getValue().asText()));
+                } catch (Exception ignored) {}
+            }
+        }
         if (!sections.isArray()) {
             throw new IllegalArgumentException("좌석 맵 JSON의 sections 형식이 올바르지 않습니다");
         }
 
         int created = 0;
-        List<ScheduleSeat> batch = new ArrayList<>();
+        List<ScheduleSeat> newBatch = new ArrayList<>();
+        List<ScheduleSeat> updateBatch = new ArrayList<>();
 
-        // 초기화: 기존 좌석 제거 후 재생성 (dryRun이면 카운트만 계산)
-        long existing = scheduleSeatRepository.countBySchedule_ScheduleId(scheduleId);
-        if (!dryRun && existing > 0) {
-            scheduleSeatRepository.deleteBySchedule_ScheduleId(scheduleId);
+        // 기존 좌석 유지: 존재하는 좌석은 그대로 두고, 없는 좌석만 생성
+        List<ScheduleSeat> existingSeats = scheduleSeatRepository.findBySchedule_ScheduleId(scheduleId);
+        java.util.Map<String, ScheduleSeat> existingMap = new java.util.HashMap<>();
+        for (ScheduleSeat s : existingSeats) {
+            existingMap.put(key(s.getZone(), s.getRowLabel(), s.getColNum()), s);
         }
+        long existingTotal = existingSeats.size();
+        int existingAvailable = scheduleSeatRepository.countAvailableSeatsByScheduleId(scheduleId);
 
         for (JsonNode sec : sections) {
             String zone = textOrNull(sec, "zone");
@@ -74,36 +114,58 @@ public class ScheduleSeatInitializationService {
                 String rowLabel = incrementAlpha(rowLabelFrom, r);
                 for (int c = 0; c < cols; c++) {
                     String colNum = String.valueOf(seatStart + c);
-                    ScheduleSeat seat = ScheduleSeat.builder()
-                            .schedule(schedule)
-                            .grade(grade == null ? "" : grade)
-                            .zone(zone)
-                            .rowLabel(rowLabel)
-                            .colNum(colNum)
-                            .build();
-
-                    if (!dryRun) {
-                        batch.add(seat);
-                        if (batch.size() >= 500) {
-                            scheduleSeatRepository.saveAll(batch);
-                            batch.clear();
+                    java.math.BigDecimal price = pricing.getOrDefault(grade == null ? "" : grade, java.math.BigDecimal.ZERO);
+                    String k = key(zone, rowLabel, colNum);
+                    ScheduleSeat existingSeat = existingMap.get(k);
+                    if (existingSeat != null) {
+                        // 기존 좌석: 가격만 JSON pricing으로 동기화(필요 시)
+                        if (price != null) {
+                            java.math.BigDecimal current = existingSeat.getPrice() == null ? java.math.BigDecimal.ZERO : existingSeat.getPrice();
+                            if (current.compareTo(price) != 0) {
+                                existingSeat.setPrice(price);
+                                if (!dryRun) updateBatch.add(existingSeat);
+                            }
                         }
+                        // 생성 카운트 증가 없음
+                    } else {
+                        // 신규 좌석 생성
+                        ScheduleSeat seat = ScheduleSeat.builder()
+                                .schedule(schedule)
+                                .grade(grade == null ? "" : grade)
+                                .zone(zone)
+                                .rowLabel(rowLabel)
+                                .colNum(colNum)
+                                .price(price)
+                                .build();
+
+                        if (!dryRun) {
+                            newBatch.add(seat);
+                            if (newBatch.size() >= 500) {
+                                scheduleSeatRepository.saveAll(newBatch);
+                                newBatch.clear();
+                            }
+                        }
+                        created++;
                     }
-                    created++;
                 }
             }
         }
 
-        if (!dryRun && !batch.isEmpty()) {
-            scheduleSeatRepository.saveAll(batch);
+        if (!dryRun) {
+            if (!newBatch.isEmpty()) {
+                scheduleSeatRepository.saveAll(newBatch);
+            }
+            if (!updateBatch.isEmpty()) {
+                scheduleSeatRepository.saveAll(updateBatch);
+            }
         }
 
         // 카운터 재계산 및 반영
         long total;
         int available;
         if (dryRun) {
-            total = created;
-            available = created;
+            total = existingTotal + created;
+            available = existingAvailable + created; // 신규 좌석은 AVAILABLE로 시작
         } else {
             total = scheduleSeatRepository.countBySchedule_ScheduleId(scheduleId);
             available = scheduleSeatRepository.countAvailableSeatsByScheduleId(scheduleId);
@@ -119,6 +181,10 @@ public class ScheduleSeatInitializationService {
                 .available(available)
                 .dryRun(dryRun)
                 .build();
+    }
+
+    private static String key(String zone, String rowLabel, String colNum) {
+        return (zone == null ? "" : zone) + "|" + (rowLabel == null ? "" : rowLabel) + "|" + (colNum == null ? "" : colNum);
     }
 
     private static String textOrNull(JsonNode node, String field) {
