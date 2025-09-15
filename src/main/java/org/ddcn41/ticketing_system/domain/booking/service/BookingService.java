@@ -87,6 +87,10 @@ public class BookingService {
         // 낙관적 락으로 좌석 상태 저장 (버전 충돌 시 OptimisticLockException 발생)
         try {
             scheduleSeatRepository.saveAll(requestedSeats);
+            // 좌석을 AVAILABLE -> LOCKED로 변경한 수만큼 가용 좌석 카운터 감소
+            if (!requestedSeats.isEmpty()) {
+                scheduleRepository.decrementAvailableSeats(req.getScheduleId(), requestedSeats.size());
+            }
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(BAD_REQUEST, "다른 사용자가 먼저 예약한 좌석이 있습니다. 다시 시도해주세요.");
         }
@@ -169,15 +173,10 @@ public class BookingService {
         try {
             // 낙관적 락으로 좌석 상태를 LOCKED에서 BOOKED로 변경
             scheduleSeatRepository.saveAll(seats);
-            
-            // 예약 상태 변경
+
+            // 예약 상태 변경 (가용 좌석 카운터는 LOCK 시점에 감소했으므로 추가 감소 없음)
             booking.setStatus(BookingStatus.CONFIRMED);
             bookingRepository.save(booking);
-            
-            // performance_schedules의 available_seats 감소
-            PerformanceSchedule schedule = booking.getSchedule();
-            schedule.setAvailableSeats(schedule.getAvailableSeats() - booking.getSeatCount());
-            scheduleRepository.save(schedule);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(BAD_REQUEST, "좌석 상태가 변경되었습니다. 다시 시도해주세요.");
         } catch (Exception e) {
@@ -313,12 +312,7 @@ public class BookingService {
 
         bookingRepository.save(booking);
 
-        // 확정된 예약이었다면 available_seats 증가
-        if (wasConfirmed) {
-            PerformanceSchedule schedule = booking.getSchedule();
-            schedule.setAvailableSeats(schedule.getAvailableSeats() + booking.getSeatCount());
-            scheduleRepository.save(schedule);
-        }
+        // 확정된 예약이었다면 좌석 상태를 AVAILABLE로 되돌리는 cancelSeats에서 카운터 증가 처리 완료
 
         return CancelBooking200ResponseDto.builder()
                 .message("예매 취소 성공")
@@ -448,10 +442,9 @@ public class BookingService {
         String seatZone = null;
         if (b.getBookingSeats() != null && !b.getBookingSeats().isEmpty()) {
             var scheduleSeat = b.getBookingSeats().get(0).getSeat();
-            if (scheduleSeat != null && scheduleSeat.getVenueSeat() != null) {
-                var venueSeat = scheduleSeat.getVenueSeat();
-                seatCode = venueSeat.getSeatRow() + venueSeat.getSeatNumber();
-                seatZone = venueSeat.getSeatZone();
+            if (scheduleSeat != null) {
+                seatCode = scheduleSeat.getRowLabel() + scheduleSeat.getColNum();
+                seatZone = scheduleSeat.getZone();
             }
         }
         
@@ -485,10 +478,9 @@ public class BookingService {
         String seatZone = null;
         if (b.getBookingSeats() != null && !b.getBookingSeats().isEmpty()) {
             var scheduleSeat = b.getBookingSeats().get(0).getSeat();
-            if (scheduleSeat != null && scheduleSeat.getVenueSeat() != null) {
-                var venueSeat = scheduleSeat.getVenueSeat();
-                seatCode = venueSeat.getSeatRow() + venueSeat.getSeatNumber();
-                seatZone = venueSeat.getSeatZone();
+            if (scheduleSeat != null) {
+                seatCode = scheduleSeat.getRowLabel() + scheduleSeat.getColNum();
+                seatZone = scheduleSeat.getZone();
             }
         }
         

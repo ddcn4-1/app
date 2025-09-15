@@ -89,8 +89,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
            "b.schedule.showDatetime as showDatetime, " +
            "b.schedule.performance.title as performanceTitle, " +
            "b.schedule.performance.venue.venueName as venueName, " +
-           "CONCAT(vs.seatRow, vs.seatNumber) as seatCode, " +
-           "vs.seatZone as seatZone, " +
+           "CONCAT(ss.rowLabel, ss.colNum) as seatCode, " +
+           "ss.zone as seatZone, " +
            "b.seatCount as seatCount, " +
            "b.totalAmount as totalAmount, " +
            "b.status as status, " +
@@ -106,8 +106,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
            "JOIN b.schedule.performance " +
            "JOIN b.schedule.performance.venue " +
            "LEFT JOIN b.bookingSeats bs " +
-           "LEFT JOIN bs.seat ss " +
-           "LEFT JOIN ss.venueSeat vs")
+           "LEFT JOIN bs.seat ss ")
     Page<BookingProjection> findAllWithDetails(Pageable pageable);
 
     /**
@@ -123,8 +122,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
            "b.schedule.showDatetime as showDatetime, " +
            "b.schedule.performance.title as performanceTitle, " +
            "b.schedule.performance.venue.venueName as venueName, " +
-           "CONCAT(vs.seatRow, vs.seatNumber) as seatCode, " +
-           "vs.seatZone as seatZone, " +
+           "CONCAT(ss.rowLabel, ss.colNum) as seatCode, " +
+           "ss.zone as seatZone, " +
            "b.seatCount as seatCount, " +
            "b.totalAmount as totalAmount, " +
            "b.status as status, " +
@@ -141,7 +140,6 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
            "JOIN b.schedule.performance.venue " +
            "LEFT JOIN b.bookingSeats bs " +
            "LEFT JOIN bs.seat ss " +
-           "LEFT JOIN ss.venueSeat vs " +
            "WHERE b.status = :status")
     Page<BookingProjection> findAllByStatusWithDetails(@Param("status") BookingStatus status, Pageable pageable);
 }

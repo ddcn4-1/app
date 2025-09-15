@@ -58,6 +58,4 @@ public class Venue {
     @OneToMany(mappedBy = "venue", cascade = CascadeType.ALL)
     private List<Performance> performances;
 
-    @OneToMany(mappedBy = "venue", cascade = CascadeType.ALL)
-    private List<VenueSeat> venueSeats;
 }

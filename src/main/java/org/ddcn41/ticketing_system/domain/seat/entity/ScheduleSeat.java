@@ -7,7 +7,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.ddcn41.ticketing_system.domain.booking.entity.BookingSeat;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
-import org.ddcn41.ticketing_system.domain.venue.entity.VenueSeat;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -17,7 +16,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "schedule_seats",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"schedule_id", "venue_seat_id"}))
+        uniqueConstraints = @UniqueConstraint(columnNames = {"schedule_id", "zone", "row_label", "col_num"}))
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -33,9 +32,17 @@ public class ScheduleSeat {
     @JoinColumn(name = "schedule_id", nullable = false)
     private PerformanceSchedule schedule;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "venue_seat_id", nullable = false)
-    private VenueSeat venueSeat;
+    @Column(name = "grade", nullable = false, length = 10)
+    private String grade;
+
+    @Column(name = "zone", length = 50)
+    private String zone;
+
+    @Column(name = "row_label", nullable = false, length = 10)
+    private String rowLabel;
+
+    @Column(name = "col_num", nullable = false, length = 10)
+    private String colNum;
 
     @Column(precision = 10, scale = 2)
     @Builder.Default
