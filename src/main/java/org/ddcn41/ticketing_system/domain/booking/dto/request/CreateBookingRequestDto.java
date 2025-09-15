@@ -9,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import org.ddcn41.ticketing_system.domain.booking.dto.request.SeatSelectorDto;
 
 @Data
 @NoArgsConstructor
@@ -21,7 +22,7 @@ public class CreateBookingRequestDto {
     @Valid
     @NotNull
     @Size(min = 1)
-    private List<Long> seatIds;
+    private List<SeatSelectorDto> seats;
 
     private String queueToken;
 }

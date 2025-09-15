@@ -91,6 +91,11 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
            "b.schedule.performance.venue.venueName as venueName, " +
            "CONCAT(ss.rowLabel, ss.colNum) as seatCode, " +
            "ss.zone as seatZone, " +
+           "bs.bookingSeatId as bookingSeatId, " +
+           "ss.grade as seatGrade, " +
+           "ss.rowLabel as seatRowLabel, " +
+           "ss.colNum as seatColNum, " +
+           "bs.seatPrice as seatPrice, " +
            "b.seatCount as seatCount, " +
            "b.totalAmount as totalAmount, " +
            "b.status as status, " +
@@ -124,6 +129,11 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
            "b.schedule.performance.venue.venueName as venueName, " +
            "CONCAT(ss.rowLabel, ss.colNum) as seatCode, " +
            "ss.zone as seatZone, " +
+           "bs.bookingSeatId as bookingSeatId, " +
+           "ss.grade as seatGrade, " +
+           "ss.rowLabel as seatRowLabel, " +
+           "ss.colNum as seatColNum, " +
+           "bs.seatPrice as seatPrice, " +
            "b.seatCount as seatCount, " +
            "b.totalAmount as totalAmount, " +
            "b.status as status, " +
