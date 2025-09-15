@@ -41,6 +41,12 @@ public class Venue {
     @Column(length = 100)
     private String contact;
 
+    @Column(name = "seat_map_url", columnDefinition = "TEXT")
+    private String seatMapUrl;
+
+    @Column(name = "seat_map_json", columnDefinition = "JSONB")
+    private String seatMapJson;
+
     @CreationTimestamp
     @Column(name = "created_at")
     private LocalDateTime createdAt;

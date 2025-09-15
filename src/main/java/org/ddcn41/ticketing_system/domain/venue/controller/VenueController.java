@@ -50,4 +50,16 @@ public class VenueController {
         venueService.deleteVenue(venueId);
         return ResponseEntity.noContent().build();
     }
+
+    // 공연장 좌석 배치도 조회
+    @GetMapping("/{venueId}/seatmap")
+    public ResponseEntity<String> getVenueSeatMap(@PathVariable Long venueId) {
+        String seatMapJson = venueService.getVenueSeatMap(venueId);
+        if (seatMapJson == null || seatMapJson.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .header("Content-Type", "application/json")
+                .body(seatMapJson);
+    }
 }
