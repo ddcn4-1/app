@@ -84,4 +84,11 @@ public class PerformanceService {
         Performance savedPerformance = performanceRepository.save(performance);
         return PerformanceResponse.from(savedPerformance);
     }
+
+    public void deletePerformance(Long performanceId) {
+        if (!performanceRepository.existsById(performanceId)) {
+            throw new EntityNotFoundException("Performance not found with id: "+performanceId);
+        }
+        performanceRepository.deleteById(performanceId);
+    }
 }

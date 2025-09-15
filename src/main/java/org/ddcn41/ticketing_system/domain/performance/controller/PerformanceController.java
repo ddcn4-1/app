@@ -1,6 +1,7 @@
 package org.ddcn41.ticketing_system.domain.performance.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -114,7 +115,19 @@ public class PerformanceController {
         return ResponseEntity.status(HttpStatus.CREATED).body(performanceResponse);
     }
 
-
+    @DeleteMapping("/{performanceId}")
+    @Operation(summary = "공연 삭제", description = "공연 대시보드에서 기존 공연을 삭제할 때 사용")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "공연 삭제", content = @Content),
+            @ApiResponse(responseCode = "404", description = "Related resource not found", content = @Content)
+    })
+    public ResponseEntity<PerformanceResponse> deletePerformance(
+            @Parameter(description = "Performance ID", required = true)
+            @PathVariable long performanceId) {
+        performanceService.deletePerformance(performanceId);
+        return ResponseEntity.noContent().build();
+    }
 
 
 
