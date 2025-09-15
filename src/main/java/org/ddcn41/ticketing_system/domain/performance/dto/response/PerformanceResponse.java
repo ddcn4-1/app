@@ -27,6 +27,7 @@ public class PerformanceResponse {
     private String endDate;
     private Integer runningTime;
     private String venueAddress;
+    private Long venueId;
     private List<ScheduleResponse> schedules;
 
     public static PerformanceResponse from(Performance performance) {
@@ -48,6 +49,7 @@ public class PerformanceResponse {
                 .endDate(performance.getEndDate().toString())
                 .runningTime(performance.getRunningTime())
                 .venueAddress(performance.getVenue().getAddress())
+                .venueId(performance.getVenue().getVenueId())
                 .schedules(scheduleResponses)
                 .description(performance.getDescription())
                 .build();

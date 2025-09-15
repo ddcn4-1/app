@@ -1,13 +1,11 @@
 package org.ddcn41.ticketing_system.domain.performance.dto.request;
 
-import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
-import org.ddcn41.ticketing_system.domain.venue.entity.Venue;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -17,7 +15,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class CreatePerformanceRequestDto {
+public class PerformanceRequestDto {
     private Long venueId;
     private String title;
     private String description;

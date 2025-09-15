@@ -2,7 +2,7 @@ package org.ddcn41.ticketing_system.domain.performance.service;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.domain.performance.dto.request.CreatePerformanceRequestDto;
+import org.ddcn41.ticketing_system.domain.performance.dto.request.PerformanceRequestDto;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceResponse;
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
@@ -10,12 +10,10 @@ import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceRepo
 import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceScheduleRepository;
 import org.ddcn41.ticketing_system.domain.venue.entity.Venue;
 import org.ddcn41.ticketing_system.domain.venue.repository.VenueRepository;
-import org.ddcn41.ticketing_system.domain.venue.service.VenueService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -61,7 +59,7 @@ public class PerformanceService {
         return performanceScheduleRepository.findByPerformance_PerformanceIdOrderByShowDatetimeAsc(performanceId);
     }
 
-    public PerformanceResponse createPerformance(CreatePerformanceRequestDto createPerformanceRequestDto) {
+    public PerformanceResponse createPerformance(PerformanceRequestDto createPerformanceRequestDto) {
         Venue venue = venueRepository.findById(createPerformanceRequestDto.getVenueId())
                 .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ createPerformanceRequestDto.getVenueId()));
 
@@ -90,5 +88,27 @@ public class PerformanceService {
             throw new EntityNotFoundException("Performance not found with id: "+performanceId);
         }
         performanceRepository.deleteById(performanceId);
+    }
+
+    public PerformanceResponse updatePerformance(Long performanceId, PerformanceRequestDto updatePerformanceRequestDto) {
+        Performance performance = getPerformanceById(performanceId);
+
+        Venue venue = venueRepository.findById(updatePerformanceRequestDto.getVenueId())
+                .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ updatePerformanceRequestDto.getVenueId()));
+
+        performance.setVenue(venue);
+        performance.setTitle(updatePerformanceRequestDto.getTitle());
+        performance.setDescription(updatePerformanceRequestDto.getDescription());
+        performance.setTheme(updatePerformanceRequestDto.getTheme());
+        performance.setPosterUrl(updatePerformanceRequestDto.getPosterUrl());
+        performance.setStartDate(updatePerformanceRequestDto.getStartDate());
+        performance.setEndDate(updatePerformanceRequestDto.getEndDate());
+        performance.setRunningTime(updatePerformanceRequestDto.getRunningTime());
+        performance.setBasePrice(updatePerformanceRequestDto.getBasePrice());
+        performance.setStatus(updatePerformanceRequestDto.getStatus());
+        performance.setSchedules(updatePerformanceRequestDto.getSchedules());
+
+        Performance updatedPerformance = performanceRepository.save(performance);
+        return PerformanceResponse.from(updatedPerformance);
     }
 }
