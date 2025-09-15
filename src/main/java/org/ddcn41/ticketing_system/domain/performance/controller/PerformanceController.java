@@ -5,12 +5,16 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.ddcn41.ticketing_system.domain.performance.dto.request.CreatePerformanceRequestDto;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceResponse;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceSchedulesResponse;
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.service.PerformanceService;
+import org.ddcn41.ticketing_system.domain.user.dto.UserCreateRequestDto;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -94,6 +98,20 @@ public class PerformanceController {
                 .schedules(scheduleResponses)
                 .build();
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "공연 생성", description = "공연 대시보드에서 새로운 공연을 생성할 때 사용")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Performance created",
+                    content = @Content(schema = @Schema(implementation = CreatePerformanceRequestDto.class))),
+            @ApiResponse(responseCode = "404", description = "Related resource not found", content = @Content)
+    })
+    @PostMapping
+    public ResponseEntity<PerformanceResponse> createPerformance(
+            @RequestBody CreatePerformanceRequestDto createPerformanceRequestDto) {
+        PerformanceResponse performanceResponse = performanceService.createPerformance(createPerformanceRequestDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(performanceResponse);
     }
 
 
