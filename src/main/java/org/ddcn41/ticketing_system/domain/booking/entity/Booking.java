@@ -82,6 +82,6 @@ public class Booking {
     private List<Refund> refunds;
 
     public enum BookingStatus {
-        PENDING, BOOKED, CONFIRMED, CANCELLED
+        PENDING, CONFIRMED, CANCELLED
     }
 }
