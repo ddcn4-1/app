@@ -25,6 +25,11 @@ public interface BookingProjection {
     // Seat
     String getSeatCode(); // concatenated seat_row + seat_number
     String getSeatZone();
+    Long getBookingSeatId();
+    String getSeatGrade();
+    String getSeatRowLabel();
+    String getSeatColNum();
+    java.math.BigDecimal getSeatPrice();
     
     // Booking
     Integer getSeatCount();

@@ -71,6 +71,13 @@ public class VenueService {
         venueRepository.deleteById(venueId);
     }
 
+    // 공연장 좌석 배치도 JSON 조회
+    public String getVenueSeatMap(Long venueId) {
+        Venue venue = venueRepository.findById(venueId)
+                .orElseThrow(() -> new RuntimeException("Venue not found with id: " + venueId));
+        return venue.getSeatMapJson();
+    }
+
     // Entity를 DTO로 변환
     private VenueDto convertToDto(Venue venue) {
         return VenueDto.builder()

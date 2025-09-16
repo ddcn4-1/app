@@ -15,6 +15,10 @@ public class BookingSeatDto {
     private Long bookingId;
     private Long seatId;
     private Double seatPrice;
+    private String grade;
+    private String zone;
+    private String rowLabel;
+    private String colNum;
 
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
     private OffsetDateTime createdAt;
