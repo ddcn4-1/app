@@ -50,10 +50,14 @@ public class QueueToken {
 
     // 대기열 관련 필드 추가
     @Column(name = "position_in_queue")
-    private Integer positionInQueue;
+    @Builder.Default
+    private Integer positionInQueue = 1;
+
 
     @Column(name = "estimated_wait_time")
-    private Integer estimatedWaitTimeMinutes;
+    @Builder.Default
+    private Integer estimatedWaitTimeMinutes = 60; //todo. 시간 확인
+
 
     @Column(name = "issued_at", nullable = false)
     @Builder.Default
@@ -97,6 +101,8 @@ public class QueueToken {
         this.status = TokenStatus.ACTIVE;
         this.activatedAt = LocalDateTime.now();
         this.bookingExpiresAt = LocalDateTime.now().plusMinutes(10); // 10분간 예매 가능
+        this.positionInQueue = 0;
+        this.estimatedWaitTimeMinutes = 0;
     }
 
     /**
@@ -127,15 +133,26 @@ public class QueueToken {
      * 토큰이 만료되었는지 확인
      */
     public boolean isExpired() {
-        return LocalDateTime.now().isAfter(expiresAt) ||
-                (bookingExpiresAt != null && LocalDateTime.now().isAfter(bookingExpiresAt));
+        LocalDateTime now = LocalDateTime.now();
+        return now.isAfter(expiresAt) ||
+                (bookingExpiresAt != null && now.isAfter(bookingExpiresAt));
     }
 
     /**
      * 대기 시간 업데이트
      */
     public void updateWaitInfo(int position, int estimatedMinutes) {
-        this.positionInQueue = position;
-        this.estimatedWaitTimeMinutes = estimatedMinutes;
+        this.positionInQueue = Math.max(0, position);
+        this.estimatedWaitTimeMinutes = Math.max(0, estimatedMinutes);
+    }
+
+    public Integer getPositionInQueue() {
+        return this.positionInQueue != null ? this.positionInQueue :
+                (this.status == TokenStatus.WAITING ? 1 : 0);
+    }
+
+    public Integer getEstimatedWaitTimeMinutes() {
+        return this.estimatedWaitTimeMinutes != null ? this.estimatedWaitTimeMinutes :
+                (this.status == TokenStatus.WAITING ? 60 : 0);
     }
 }

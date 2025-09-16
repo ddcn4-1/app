@@ -15,6 +15,7 @@ import org.ddcn41.ticketing_system.domain.booking.dto.response.GetBookings200Res
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking;
 import org.ddcn41.ticketing_system.domain.booking.entity.Booking.BookingStatus;
 import org.ddcn41.ticketing_system.domain.booking.entity.BookingSeat;
+import org.ddcn41.ticketing_system.domain.queue.entity.QueueToken;
 import org.ddcn41.ticketing_system.domain.seat.entity.ScheduleSeat;
 import org.ddcn41.ticketing_system.domain.seat.repository.ScheduleSeatRepository;
 import org.ddcn41.ticketing_system.domain.seat.service.SeatService;
@@ -62,26 +63,31 @@ public class BookingService {
         PerformanceSchedule schedule = scheduleRepository.findById(req.getScheduleId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
 
-        // 대기열 토큰 검증 추가
+        // ⭐ 대기열 토큰 검증 강화
         if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
             boolean isValidToken = queueService.validateTokenForBooking(
                     req.getQueueToken(), user.getUserId());
 
             if (!isValidToken) {
                 throw new ResponseStatusException(BAD_REQUEST,
-                        "유효하지 않은 대기열 토큰입니다. 대기열을 통해 다시 시도해주세요.");
+                        "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 권한이 없습니다. 대기열을 통해 다시 시도해주세요.");
             }
+
+            try {
+                QueueToken queueToken = queueService.getTokenByString(req.getQueueToken());
+                if (!queueToken.isActiveForBooking()) {
+                    throw new ResponseStatusException(BAD_REQUEST,
+                            "토큰이 예매 가능한 상태가 아닙니다. 시간이 만료되었을 수 있습니다.");
+                }
+            } catch (Exception e) {
+                throw new ResponseStatusException(BAD_REQUEST,
+                        "토큰 검증 중 오류가 발생했습니다. 다시 시도해주세요.");
+            }
+
         } else {
             // 토큰이 없는 경우 - 공연별 정책에 따라 처리
-            // 옵션 1: 항상 토큰 필요
             throw new ResponseStatusException(BAD_REQUEST,
                     "대기열 토큰이 필요합니다. 대기열에 참여해주세요.");
-
-            // 옵션 2: 특정 조건에서만 토큰 필요 (예: 인기 공연)
-            // if (isPopularPerformance(schedule.getPerformance())) {
-            //     throw new ResponseStatusException(BAD_REQUEST,
-            //         "인기 공연은 대기열 토큰이 필요합니다.");
-            // }
         }
 
         // 요청된 좌석들이 해당 스케줄에 속하는지 먼저 검증
@@ -140,14 +146,16 @@ public class BookingService {
         Booking saved = bookingRepository.save(booking);
 
         // 예매 완료 시 토큰 사용 처리
-        if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
-            try {
+        try {
+            if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
                 queueService.useToken(req.getQueueToken());
-            } catch (Exception e) {
-                log.warn("토큰 사용 처리 중 오류 발생: {}", e.getMessage());
-                // 예매는 완료되었으므로 로그만 남기고 계속 진행
+                log.info("토큰 사용 완료 - 사용자: {}, 토큰: {}", username, req.getQueueToken());
             }
+        } catch (Exception e) {
+            log.warn("토큰 사용 처리 중 오류 발생: {}", e.getMessage());
+            // 예매는 완료되었으므로 로그만 남기고 계속 진행
         }
+
 
         // 예약 좌석 정보 생성 (좌석 상태 변경은 하지 않음)
         List<BookingSeat> savedSeats = seats.stream()

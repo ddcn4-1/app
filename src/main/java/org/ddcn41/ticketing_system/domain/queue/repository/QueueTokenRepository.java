@@ -24,7 +24,9 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
      * 사용자와 공연으로 활성 토큰 조회
      */
     @Query("SELECT qt FROM QueueToken qt WHERE qt.user = :user AND qt.performance = :performance " +
-            "AND qt.status IN ('WAITING', 'ACTIVE') ORDER BY qt.createdAt DESC")
+            "AND qt.status IN ('WAITING', 'ACTIVE') " +
+            "AND (qt.expiresAt > CURRENT_TIMESTAMP) " +
+            "ORDER BY qt.createdAt DESC")
     Optional<QueueToken> findActiveTokenByUserAndPerformance(@Param("user") User user,
                                                              @Param("performance") Performance performance);
 
@@ -40,7 +42,8 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
      */
     @Query("SELECT COUNT(qt) FROM QueueToken qt WHERE qt.performance = :performance " +
             "AND qt.status = 'WAITING' AND qt.issuedAt < :issuedAt")
-    Long findPositionInQueue(@Param("performance") Performance performance, @Param("issuedAt") LocalDateTime issuedAt);
+    Long findPositionInQueue(@Param("performance") Performance performance,
+                             @Param("issuedAt") LocalDateTime issuedAt);
 
     /**
      * 활성화 가능한 토큰들 조회 (대기열에서 앞순서부터)
@@ -52,7 +55,9 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     /**
      * 만료된 토큰들 조회
      */
-    @Query("SELECT qt FROM QueueToken qt WHERE (qt.expiresAt < :now OR qt.bookingExpiresAt < :now) " +
+    @Query("SELECT qt FROM QueueToken qt WHERE " +
+            "(qt.expiresAt < :now OR " +
+            "(qt.bookingExpiresAt IS NOT NULL AND qt.bookingExpiresAt < :now)) " +
             "AND qt.status IN ('WAITING', 'ACTIVE')")
     List<QueueToken> findExpiredTokens(@Param("now") LocalDateTime now);
 
@@ -91,7 +96,9 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     /**
      *  비활성 토큰 조회 (cleanupInactiveSessions용)
      */
-    @Query("SELECT qt FROM QueueToken qt WHERE qt.updatedAt < :cutoff AND qt.status = 'ACTIVE'")
+    @Query("SELECT qt FROM QueueToken qt WHERE qt.updatedAt < :cutoff " +
+            "AND qt.status = 'ACTIVE' AND qt.bookingExpiresAt > CURRENT_TIMESTAMP")
     List<QueueToken> findTokensLastAccessedBefore(@Param("cutoff") LocalDateTime cutoff);
+
 }
 
