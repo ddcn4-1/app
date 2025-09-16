@@ -72,6 +72,9 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
 
+                        // Queue API는 인증 필요 (대부분의 엔드포인트가 @SecurityRequirement 있음)
+                        .requestMatchers("/api/v1/queue/**").authenticated()
+
                         // 정적 리소스 및 페이지 라우팅 허용
                         .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
                         .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()

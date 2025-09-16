@@ -1,6 +1,7 @@
 package org.ddcn41.ticketing_system.domain.booking.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
 import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceScheduleRepository;
 import org.ddcn41.ticketing_system.domain.booking.dto.BookingDto;
@@ -27,6 +28,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.ddcn41.ticketing_system.domain.queue.service.QueueService;
+
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -39,6 +42,7 @@ import static org.springframework.http.HttpStatus.*;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BookingService {
 
     private final BookingRepository bookingRepository;
@@ -48,6 +52,7 @@ public class BookingService {
     private final UserRepository userRepository;
 
     private final SeatService seatService;
+    private final QueueService queueService;
 
     @Transactional(rollbackFor = Exception.class)
     public CreateBookingResponseDto createBooking(String username, CreateBookingRequestDto req) {
@@ -56,6 +61,28 @@ public class BookingService {
 
         PerformanceSchedule schedule = scheduleRepository.findById(req.getScheduleId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
+
+        // 대기열 토큰 검증 추가
+        if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
+            boolean isValidToken = queueService.validateTokenForBooking(
+                    req.getQueueToken(), user.getUserId());
+
+            if (!isValidToken) {
+                throw new ResponseStatusException(BAD_REQUEST,
+                        "유효하지 않은 대기열 토큰입니다. 대기열을 통해 다시 시도해주세요.");
+            }
+        } else {
+            // 토큰이 없는 경우 - 공연별 정책에 따라 처리
+            // 옵션 1: 항상 토큰 필요
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "대기열 토큰이 필요합니다. 대기열에 참여해주세요.");
+
+            // 옵션 2: 특정 조건에서만 토큰 필요 (예: 인기 공연)
+            // if (isPopularPerformance(schedule.getPerformance())) {
+            //     throw new ResponseStatusException(BAD_REQUEST,
+            //         "인기 공연은 대기열 토큰이 필요합니다.");
+            // }
+        }
 
         // 요청된 좌석들이 해당 스케줄에 속하는지 먼저 검증
         List<ScheduleSeat> requestedSeats = scheduleSeatRepository.findBySchedule_ScheduleIdAndSeatIdIn(
@@ -111,6 +138,16 @@ public class BookingService {
                 .build();
 
         Booking saved = bookingRepository.save(booking);
+
+        // 예매 완료 시 토큰 사용 처리
+        if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
+            try {
+                queueService.useToken(req.getQueueToken());
+            } catch (Exception e) {
+                log.warn("토큰 사용 처리 중 오류 발생: {}", e.getMessage());
+                // 예매는 완료되었으므로 로그만 남기고 계속 진행
+            }
+        }
 
         // 예약 좌석 정보 생성 (좌석 상태 변경은 하지 않음)
         List<BookingSeat> savedSeats = seats.stream()
