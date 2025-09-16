@@ -3,7 +3,6 @@ package org.ddcn41.ticketing_system.domain.queue.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,10 +12,7 @@ import lombok.RequiredArgsConstructor;
 // Queue 관련 import
 import org.ddcn41.ticketing_system.domain.queue.dto.request.HeartbeatRequest;
 import org.ddcn41.ticketing_system.domain.queue.dto.request.SessionReleaseRequest;
-import org.ddcn41.ticketing_system.domain.queue.dto.request.TokenIssueRequest;
 import org.ddcn41.ticketing_system.domain.queue.dto.request.QueueCheckRequest;
-import org.ddcn41.ticketing_system.domain.queue.dto.response.QueueStatusResponse;
-import org.ddcn41.ticketing_system.domain.queue.dto.response.TokenIssueResponse;
 import org.ddcn41.ticketing_system.domain.queue.dto.response.QueueCheckResponse;
 import org.ddcn41.ticketing_system.domain.queue.service.QueueService;
 
