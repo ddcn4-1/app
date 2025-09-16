@@ -139,6 +139,8 @@ public class SeatService {
             // 6. DB에 락 정보 저장 및 좌석 상태 변경
             LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(LOCK_DURATION_MINUTES);
 
+            int newlyLocked = 0;
+            Long scheduleIdForCounter = null;
             for (ScheduleSeat seat : seats) {
                 // 기존 락이 있다면 연장, 없다면 새로 생성
                 Optional<SeatLock> existingLock = seatLockRepository
@@ -161,9 +163,21 @@ public class SeatService {
                     seatLockRepository.save(newLock);
                 }
 
-                // 좌석 상태 변경
+                // 좌석 상태 변경 및 카운터 감소 대상 계산
+                if (seat.getStatus() == ScheduleSeat.SeatStatus.AVAILABLE) {
+                    newlyLocked++;
+                }
                 seat.setStatus(ScheduleSeat.SeatStatus.LOCKED);
                 scheduleSeatRepository.save(seat);
+
+                if (scheduleIdForCounter == null && seat.getSchedule() != null) {
+                    scheduleIdForCounter = seat.getSchedule().getScheduleId();
+                }
+            }
+
+            // 7. 스케줄 가용 좌석 카운터 감소 (AVAILABLE -> LOCKED 전이 수만큼)
+            if (scheduleIdForCounter != null && newlyLocked > 0) {
+                scheduleRepository.decrementAvailableSeats(scheduleIdForCounter, newlyLocked);
             }
 
             return SeatLockResponse.success("좌석 락 성공", expiresAt);
@@ -245,11 +259,22 @@ public class SeatService {
     public boolean cancelSeats(List<Long> seatIds) {
         List<ScheduleSeat> seats = scheduleSeatRepository.findAllById(seatIds);
 
+        int restored = 0;
+        Long scheduleIdForCounter = null;
+
         for (ScheduleSeat seat : seats) {
             if (seat.getStatus() == ScheduleSeat.SeatStatus.BOOKED) {
                 seat.setStatus(ScheduleSeat.SeatStatus.AVAILABLE);
                 scheduleSeatRepository.save(seat);
+                restored++;
+                if (scheduleIdForCounter == null && seat.getSchedule() != null) {
+                    scheduleIdForCounter = seat.getSchedule().getScheduleId();
+                }
             }
+        }
+
+        if (scheduleIdForCounter != null && restored > 0) {
+            scheduleRepository.incrementAvailableSeats(scheduleIdForCounter, restored);
         }
 
         return true;
@@ -399,8 +424,15 @@ public class SeatService {
 
             // 좌석 상태 되돌리기
             ScheduleSeat seat = lock.getSeat();
+            boolean wasLockedOrBooked = (seat.getStatus() == ScheduleSeat.SeatStatus.LOCKED)
+                    || (seat.getStatus() == ScheduleSeat.SeatStatus.BOOKED);
             seat.setStatus(ScheduleSeat.SeatStatus.AVAILABLE);
             scheduleSeatRepository.save(seat);
+
+            // 가용 좌석 카운터 증가 (LOCKED/BOOKED -> AVAILABLE 전이인 경우만)
+            if (seat.getSchedule() != null && wasLockedOrBooked) {
+                scheduleRepository.incrementAvailableSeats(seat.getSchedule().getScheduleId(), 1);
+            }
 
             // Redis 락 해제
             String lockKey = REDIS_LOCK_PREFIX + seat.getSeatId();
@@ -435,11 +467,11 @@ public class SeatService {
         return SeatDto.builder()
                 .seatId(seat.getSeatId())
                 .scheduleId(seat.getSchedule().getScheduleId())
-                .venueSeatId(seat.getVenueSeat().getVenueSeatId())
-                .seatRow(seat.getVenueSeat().getSeatRow())
-                .seatNumber(seat.getVenueSeat().getSeatNumber())
-                .seatZone(seat.getVenueSeat().getSeatZone())
-                .seatGrade(seat.getVenueSeat().getSeatGrade().name())
+                .venueSeatId(null) // 더 이상 사용하지 않음
+                .seatRow(seat.getRowLabel())
+                .seatNumber(seat.getColNum())
+                .seatZone(seat.getZone())
+                .seatGrade(seat.getGrade())
                 .price(seat.getPrice())
                 .status(seat.getStatus().name())
                 .build();

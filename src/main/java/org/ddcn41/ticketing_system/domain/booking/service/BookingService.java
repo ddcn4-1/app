@@ -34,6 +34,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.springframework.http.HttpStatus.*;
 
@@ -57,36 +59,59 @@ public class BookingService {
         PerformanceSchedule schedule = scheduleRepository.findById(req.getScheduleId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
 
-        // 요청된 좌석들이 해당 스케줄에 속하는지 먼저 검증
-        List<ScheduleSeat> requestedSeats = scheduleSeatRepository.findBySchedule_ScheduleIdAndSeatIdIn(
-                req.getScheduleId(), req.getSeatIds());
-
-        if (requestedSeats.size() != req.getSeatIds().size()) {
-            throw new ResponseStatusException(BAD_REQUEST,
-                    "선택한 좌석 중 일부가 해당 공연 스케줄에 속하지 않습니다");
+        // seat_map_json 파싱 (검증/가격)
+        ObjectMapper om = new ObjectMapper();
+        JsonNode root;
+        try {
+            String seatMapJson = schedule.getPerformance().getVenue().getSeatMapJson();
+            root = om.readTree(seatMapJson == null ? "{}" : seatMapJson);
+        } catch (Exception e) {
+            throw new ResponseStatusException(BAD_REQUEST, "좌석 맵 정보가 올바르지 않습니다");
         }
 
-        // 보안  2: 모든 좌석이 올바른 스케줄에 속하는지 재확인
-        boolean allSeatsInSchedule = requestedSeats.stream()
-                .allMatch(seat -> seat.getSchedule().getScheduleId().equals(req.getScheduleId()));
+        JsonNode sections = root.path("sections");
+        JsonNode pricingNode = root.path("pricing");
 
-        if (!allSeatsInSchedule) {
-            throw new ResponseStatusException(BAD_REQUEST,
-                    "선택한 좌석이 요청된 공연 스케줄과 일치하지 않습니다");
-        }
+        // 좌석 선택을 실제 ScheduleSeat로 매핑 및 검증
+        List<ScheduleSeat> requestedSeats = req.getSeats().stream().map(sel -> {
+            String grade = safeUpper(sel.getGrade());
+            String zone = safeUpper(sel.getZone());
+            String rowLabel = safeUpper(sel.getRowLabel());
+            String colNum = sel.getColNum();
 
-        // 좌석 가용성 확인 및 낙관적 락으로 좌석 상태 변경
-        for (ScheduleSeat seat : requestedSeats) {
+            boolean validByJson = validateBySeatMap(sections, grade, zone, rowLabel, colNum);
+            if (!validByJson) {
+                throw new ResponseStatusException(BAD_REQUEST, String.format("유효하지 않은 좌석 지정: %s/%s-%s%s", grade, zone, rowLabel, colNum));
+            }
+
+            ScheduleSeat seat = scheduleSeatRepository.findBySchedule_ScheduleIdAndZoneAndRowLabelAndColNum(
+                    schedule.getScheduleId(), zone, rowLabel, colNum);
+            if (seat == null) {
+                throw new ResponseStatusException(BAD_REQUEST, String.format("존재하지 않는 좌석: %s/%s-%s%s", grade, zone, rowLabel, colNum));
+            }
+            if (!safeUpper(seat.getGrade()).equals(grade) || !safeUpper(seat.getZone()).equals(zone)) {
+                throw new ResponseStatusException(BAD_REQUEST, "좌석의 등급/구역 정보가 요청과 일치하지 않습니다");
+            }
+            BigDecimal price = priceByGrade(pricingNode, grade);
+            if (price != null) {
+                seat.setPrice(price);
+            }
             if (seat.getStatus() != ScheduleSeat.SeatStatus.AVAILABLE) {
                 throw new ResponseStatusException(BAD_REQUEST, "예약 불가능한 좌석이 포함되어 있습니다: " + seat.getSeatId());
             }
-            // 예약 생성 시 좌석 상태를 LOCKED로 변경
             seat.setStatus(ScheduleSeat.SeatStatus.LOCKED);
-        }
+            return seat;
+        }).collect(Collectors.toList());
 
-        // 낙관적 락으로 좌석 상태 저장 (버전 충돌 시 OptimisticLockException 발생)
+        // 낙관적 락 검증을 커밋 전에 강제 수행 (flush 시 버전 충돌 발생 가능)
+        // NOTE: 커밋 시 자동 flush로도 충분하면 이 flush는 생략 가능
         try {
             scheduleSeatRepository.saveAll(requestedSeats);
+            scheduleSeatRepository.flush();
+            // 좌석을 AVAILABLE -> LOCKED로 변경한 수만큼 가용 좌석 카운터 감소
+            if (!requestedSeats.isEmpty()) {
+                scheduleRepository.decrementAvailableSeats(req.getScheduleId(), requestedSeats.size());
+            }
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(BAD_REQUEST, "다른 사용자가 먼저 예약한 좌석이 있습니다. 다시 시도해주세요.");
         }
@@ -167,17 +192,14 @@ public class BookingService {
         }
 
         try {
-            // 낙관적 락으로 좌석 상태를 LOCKED에서 BOOKED로 변경
-            scheduleSeatRepository.saveAll(seats);
-            
-            // 예약 상태 변경
+            // 낙관적 락 검증을 커밋 전에 강제 수행 (flush 시 버전 충돌 발생 가능)
+            // NOTE: 커밋 시 자동 flush로도 충분하면 이 flush는 생략 가능
+            scheduleSeatRepository.flush();
+
+            // 예약 상태 변경 (가용 좌석 카운터는 LOCK 시점에 감소했으므로 추가 감소 없음)
             booking.setStatus(BookingStatus.CONFIRMED);
-            bookingRepository.save(booking);
-            
-            // performance_schedules의 available_seats 감소
-            PerformanceSchedule schedule = booking.getSchedule();
-            schedule.setAvailableSeats(schedule.getAvailableSeats() - booking.getSeatCount());
-            scheduleRepository.save(schedule);
+            // NOTE: booking은 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됩니다. 명시 저장이 필요 없으면 생략 가능
+            // bookingRepository.save(booking);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(BAD_REQUEST, "좌석 상태가 변경되었습니다. 다시 시도해주세요.");
         } catch (Exception e) {
@@ -236,9 +258,52 @@ public class BookingService {
             result = bookingRepository.findAllWithDetails(pr);
         }
 
-        List<BookingDto> items = result.getContent().stream()
-                .map(this::toListDtoFromProjection)
-                .collect(Collectors.toList());
+        // 동일 예약에 대해 좌석이 여러 행으로 반환될 수 있으므로 bookingId로 그룹화하여 좌석 코드를 누적
+        var grouped = new java.util.LinkedHashMap<Long, BookingDto>();
+        for (org.ddcn41.ticketing_system.domain.booking.dto.BookingProjection p : result.getContent()) {
+            BookingDto dto = grouped.get(p.getBookingId());
+            if (dto == null) {
+                dto = BookingDto.builder()
+                        .bookingId(p.getBookingId())
+                        .bookingNumber(p.getBookingNumber())
+                        .userId(p.getUserId())
+                        .userName(p.getUserName())
+                        .userPhone(p.getUserPhone())
+                        .scheduleId(p.getScheduleId())
+                        .performanceTitle(p.getPerformanceTitle())
+                        .venueName(p.getVenueName())
+                        .showDate(odt(p.getShowDatetime()))
+                        .seatCount(p.getSeatCount())
+                        .totalAmount(p.getTotalAmount() == null ? 0.0 : p.getTotalAmount().doubleValue())
+                        .status(p.getStatus() == null ? null : BookingDto.StatusEnum.valueOf(p.getStatus()))
+                        .expiresAt(odt(p.getExpiresAt()))
+                        .bookedAt(odt(p.getBookedAt()))
+                        .cancelledAt(odt(p.getCancelledAt()))
+                        .cancellationReason(p.getCancellationReason())
+                        .createdAt(odt(p.getCreatedAt()))
+                        .updatedAt(odt(p.getUpdatedAt()))
+                        .seats(new java.util.ArrayList<>())
+                        .build();
+                grouped.put(p.getBookingId(), dto);
+            }
+            // 좌석 상세 추가 (존재하는 행에 한해서)
+            if (p.getBookingSeatId() != null) {
+                BookingSeatDto seatDto = BookingSeatDto.builder()
+                        .bookingSeatId(p.getBookingSeatId())
+                        .bookingId(p.getBookingId())
+                        .seatId(null) // projection에 seatId 미포함 -> 필요시 추가
+                        .seatPrice(p.getSeatPrice() == null ? 0.0 : p.getSeatPrice().doubleValue())
+                        .grade(p.getSeatGrade())
+                        .zone(p.getSeatZone())
+                        .rowLabel(p.getSeatRowLabel())
+                        .colNum(p.getSeatColNum())
+                        .createdAt(null)
+                        .build();
+                dto.getSeats().add(seatDto);
+            }
+        }
+
+        List<BookingDto> items = new java.util.ArrayList<>(grouped.values());
 
         return GetBookings200ResponseDto.builder()
                 .bookings(items)
@@ -301,8 +366,7 @@ public class BookingService {
             throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 취소 실패");
         }
 
-        // performance_schedules의 available_seats 증가 (확정된 예약만)
-        boolean wasConfirmed = booking.getStatus() == BookingStatus.CONFIRMED;
+        // available_seats 증감은 SeatService.cancelSeats 내부에서 BOOKED -> AVAILABLE 전이 시 처리됨
         
         // 예약 상태 변경
         booking.setStatus(BookingStatus.CANCELLED);
@@ -311,15 +375,10 @@ public class BookingService {
             booking.setCancellationReason(req.getReason());
         }
 
-        bookingRepository.save(booking);
+        // NOTE: 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됨. 명시 저장이 필요 없으면 생략 가능
+        // bookingRepository.save(booking);
 
-        // 확정된 예약이었다면 available_seats 증가
-        if (wasConfirmed) {
-            PerformanceSchedule schedule = booking.getSchedule();
-            schedule.setAvailableSeats(schedule.getAvailableSeats() + booking.getSeatCount());
-            scheduleRepository.save(schedule);
-        }
-
+        // 확정된 예약이었다면 좌석 상태를 AVAILABLE로 되돌리는 cancelSeats에서 카운터 증가 처리 완료
         return CancelBooking200ResponseDto.builder()
                 .message("예매 취소 성공")
                 .bookingId(booking.getBookingId())
@@ -349,7 +408,8 @@ public class BookingService {
             booking.setStatus(BookingStatus.CANCELLED);
             booking.setCancelledAt(java.time.LocalDateTime.now());
             booking.setCancellationReason("결제 시간 만료");
-            bookingRepository.save(booking);
+            // NOTE: 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됨. 명시 저장이 필요 없으면 생략 가능
+            // bookingRepository.save(booking);
         }
     }
 
@@ -403,8 +463,6 @@ public class BookingService {
                 .performanceTitle(p.getPerformanceTitle())
                 .venueName(p.getVenueName())
                 .showDate(odt(p.getShowDatetime()))
-                .seatCode(p.getSeatCode())
-                .seatZone(p.getSeatZone())
                 .seatCount(p.getSeatCount())
                 .totalAmount(p.getTotalAmount() == null ? 0.0 : p.getTotalAmount().doubleValue())
                 .status(p.getStatus() == null ? null : BookingDto.StatusEnum.valueOf(p.getStatus()))
@@ -414,6 +472,7 @@ public class BookingService {
                 .cancellationReason(p.getCancellationReason())
                 .createdAt(odt(p.getCreatedAt()))
                 .updatedAt(odt(p.getUpdatedAt()))
+                .seats(new java.util.ArrayList<>())
                 .build();
     }
 
@@ -438,23 +497,15 @@ public class BookingService {
                 .bookingId(bs.getBooking() != null ? bs.getBooking().getBookingId() : null)
                 .seatId(bs.getSeat() != null ? bs.getSeat().getSeatId() : null)
                 .seatPrice(bs.getSeatPrice() == null ? 0.0 : bs.getSeatPrice().doubleValue())
+                .grade(bs.getSeat() != null ? bs.getSeat().getGrade() : null)
+                .zone(bs.getSeat() != null ? bs.getSeat().getZone() : null)
+                .rowLabel(bs.getSeat() != null ? bs.getSeat().getRowLabel() : null)
+                .colNum(bs.getSeat() != null ? bs.getSeat().getColNum() : null)
                 .createdAt(odt(bs.getCreatedAt()))
                 .build();
     }
 
     private BookingDto toListDto(Booking b) {
-        // Get first seat info for display
-        String seatCode = null;
-        String seatZone = null;
-        if (b.getBookingSeats() != null && !b.getBookingSeats().isEmpty()) {
-            var scheduleSeat = b.getBookingSeats().get(0).getSeat();
-            if (scheduleSeat != null && scheduleSeat.getVenueSeat() != null) {
-                var venueSeat = scheduleSeat.getVenueSeat();
-                seatCode = venueSeat.getSeatRow() + venueSeat.getSeatNumber();
-                seatZone = venueSeat.getSeatZone();
-            }
-        }
-        
         return BookingDto.builder()
                 .bookingId(b.getBookingId())
                 .bookingNumber(b.getBookingNumber())
@@ -465,10 +516,9 @@ public class BookingService {
                 .performanceTitle(b.getSchedule() != null && b.getSchedule().getPerformance() != null ? b.getSchedule().getPerformance().getTitle() : null)
                 .venueName(b.getSchedule() != null && b.getSchedule().getPerformance() != null && b.getSchedule().getPerformance().getVenue() != null ? b.getSchedule().getPerformance().getVenue().getVenueName() : null)
                 .showDate(b.getSchedule() != null ? odt(b.getSchedule().getShowDatetime()) : null)
-                .seatCode(seatCode)
-                .seatZone(seatZone)
                 .seatCount(b.getSeatCount())
                 .totalAmount(b.getTotalAmount() == null ? 0.0 : b.getTotalAmount().doubleValue())
+                .seats(b.getBookingSeats() == null ? java.util.List.of() : b.getBookingSeats().stream().map(this::toSeatDto).collect(java.util.stream.Collectors.toList()))
                 .status(b.getStatus() == null ? null : BookingDto.StatusEnum.valueOf(b.getStatus().name()))
                 .expiresAt(odt(b.getExpiresAt()))
                 .bookedAt(odt(b.getBookedAt()))
@@ -485,10 +535,9 @@ public class BookingService {
         String seatZone = null;
         if (b.getBookingSeats() != null && !b.getBookingSeats().isEmpty()) {
             var scheduleSeat = b.getBookingSeats().get(0).getSeat();
-            if (scheduleSeat != null && scheduleSeat.getVenueSeat() != null) {
-                var venueSeat = scheduleSeat.getVenueSeat();
-                seatCode = venueSeat.getSeatRow() + venueSeat.getSeatNumber();
-                seatZone = venueSeat.getSeatZone();
+            if (scheduleSeat != null) {
+                seatCode = scheduleSeat.getRowLabel() + scheduleSeat.getColNum();
+                seatZone = scheduleSeat.getZone();
             }
         }
         
@@ -519,5 +568,67 @@ public class BookingService {
 
     private OffsetDateTime odt(java.time.LocalDateTime ldt) {
         return ldt == null ? null : ldt.atOffset(ZoneOffset.UTC);
+    }
+
+    // === Private Helpers for seat-map validation and pricing ===
+    private static String safeUpper(String s) {
+        return s == null ? null : s.trim().toUpperCase();
+    }
+
+    private static BigDecimal priceByGrade(com.fasterxml.jackson.databind.JsonNode pricingNode, String grade) {
+        if (pricingNode != null && pricingNode.isObject() && grade != null) {
+            com.fasterxml.jackson.databind.JsonNode p = pricingNode.get(grade);
+            if (p != null && !p.isNull()) {
+                try { return new BigDecimal(p.asText()); } catch (Exception ignored) {}
+            }
+        }
+        return null;
+    }
+
+    private static boolean validateBySeatMap(com.fasterxml.jackson.databind.JsonNode sections, String grade, String zone, String rowLabel, String colNum) {
+        if (sections == null || !sections.isArray()) return false;
+        int col;
+        try { col = Integer.parseInt(colNum); } catch (Exception e) { return false; }
+        for (com.fasterxml.jackson.databind.JsonNode sec : sections) {
+            String g = safeUpper(textOrNull(sec, "grade"));
+            String z = safeUpper(textOrNull(sec, "zone"));
+            if (!grade.equals(g) || !zone.equals(z)) continue;
+            String rowLabelFrom = safeUpper(textOrNull(sec, "rowLabelFrom"));
+            int rows = intOrDefault(sec, "rows", 0);
+            int cols = intOrDefault(sec, "cols", 0);
+            int seatStart = intOrDefault(sec, "seatStart", 1);
+            if (rows <= 0 || cols <= 0 || rowLabelFrom == null) continue;
+            Integer rowIdx = rowIndex(rowLabelFrom, rowLabel);
+            if (rowIdx == null) continue;
+            if (rowIdx >= 0 && rowIdx < rows && col >= seatStart && col < seatStart + cols) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String textOrNull(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        com.fasterxml.jackson.databind.JsonNode n = node.get(field);
+        return n == null || n.isNull() ? null : n.asText();
+    }
+    private static int intOrDefault(com.fasterxml.jackson.databind.JsonNode node, String field, int def) {
+        com.fasterxml.jackson.databind.JsonNode n = node.get(field);
+        return n == null || !n.canConvertToInt() ? def : n.asInt();
+    }
+    private static Integer rowIndex(String from, String target) {
+        try {
+            int f = alphaToInt(from);
+            int t = alphaToInt(target);
+            return t - f;
+        } catch (Exception e) { return null; }
+    }
+    private static int alphaToInt(String s) {
+        int v = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch < 'A' || ch > 'Z') throw new IllegalArgumentException("Invalid row label: " + s);
+            v = v * 26 + (ch - 'A' + 1);
+        }
+        return v - 1;
     }
 }
