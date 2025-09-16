@@ -87,4 +87,11 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
      */
     @Query("SELECT qt FROM QueueToken qt WHERE qt.status = 'USED' AND qt.usedAt < :beforeTime")
     List<QueueToken> findOldUsedTokens(@Param("beforeTime") LocalDateTime beforeTime);
+
+    /**
+     *  비활성 토큰 조회 (cleanupInactiveSessions용)
+     */
+    @Query("SELECT qt FROM QueueToken qt WHERE qt.updatedAt < :cutoff AND qt.status = 'ACTIVE'")
+    List<QueueToken> findTokensLastAccessedBefore(@Param("cutoff") LocalDateTime cutoff);
 }
+

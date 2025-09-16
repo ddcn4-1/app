@@ -9,14 +9,26 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.ddcn41.ticketing_system.domain.queue.dto.response.QueueStatusResponse;
+
+// Queue 관련 import
+import org.ddcn41.ticketing_system.domain.queue.dto.request.HeartbeatRequest;
+import org.ddcn41.ticketing_system.domain.queue.dto.request.SessionReleaseRequest;
 import org.ddcn41.ticketing_system.domain.queue.dto.request.TokenIssueRequest;
+import org.ddcn41.ticketing_system.domain.queue.dto.request.QueueCheckRequest;
+import org.ddcn41.ticketing_system.domain.queue.dto.response.QueueStatusResponse;
 import org.ddcn41.ticketing_system.domain.queue.dto.response.TokenIssueResponse;
+import org.ddcn41.ticketing_system.domain.queue.dto.response.QueueCheckResponse;
 import org.ddcn41.ticketing_system.domain.queue.service.QueueService;
+
+// User 관련 import
 import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.service.UserService;
+
+// Response 관련 import
 import org.ddcn41.ticketing_system.dto.response.ApiResponse;
+
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,96 +44,90 @@ public class QueueController {
     private final UserService userService;
 
     /**
-     * 대기열 토큰 발급
+     * 대기열 필요성 확인 (오버부킹 적용)
      */
-    @PostMapping("/token")
-    @Operation(summary = "대기열 토큰 발급", description = "특정 공연에 대한 대기열 토큰을 발급받습니다.")
+    @PostMapping("/check")
+    @Operation(summary = "대기열 필요성 확인", description = "예매 시도 시 대기열이 필요한지 확인합니다. (오버부킹 적용)")
     @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "200",
-                    description = "토큰 발급 성공",
-                    content = @Content(schema = @Schema(implementation = TokenIssueResponse.class))),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "400",
-                    description = "잘못된 요청",
-                    content = @Content),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "401",
-                    description = "인증 실패",
-                    content = @Content),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "404",
-                    description = "공연을 찾을 수 없음",
-                    content = @Content)
-    })
-    public ResponseEntity<ApiResponse<TokenIssueResponse>> issueToken(
-            @Valid @RequestBody TokenIssueRequest request,
+    public ResponseEntity<ApiResponse<QueueCheckResponse>> checkQueueRequirement(
+            @Valid @RequestBody QueueCheckRequest request,
             Authentication authentication) {
 
         String username = authentication.getName();
         User user = userService.findByUsername(username);
 
-        TokenIssueResponse response = queueService.issueQueueToken(
-                user.getUserId(), request.getPerformanceId());
+        QueueCheckResponse response = queueService.checkQueueRequirement(
+                request.getPerformanceId(),
+                request.getScheduleId(),
+                user.getUserId()
+        );
 
         return ResponseEntity.ok(
-                ApiResponse.success("대기열 토큰이 발급되었습니다", response)
+                ApiResponse.success("대기열 확인 완료", response)
         );
     }
 
     /**
-     * 토큰 상태 조회
+     * Heartbeat 전송 (사용자 활성 상태 유지)
      */
-    @GetMapping("/status/{token}")
-    @Operation(summary = "토큰 상태 조회", description = "발급받은 토큰의 현재 상태와 대기열 정보를 조회합니다.")
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "200",
-                    description = "조회 성공",
-                    content = @Content(schema = @Schema(implementation = QueueStatusResponse.class))),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "404",
-                    description = "토큰을 찾을 수 없음",
-                    content = @Content)
-    })
-    public ResponseEntity<ApiResponse<QueueStatusResponse>> getTokenStatus(
-            @Parameter(description = "토큰 문자열", required = true)
-            @PathVariable String token) {
-
-        QueueStatusResponse response = queueService.getTokenStatus(token);
-
-        return ResponseEntity.ok(
-                ApiResponse.success("토큰 상태 조회 성공", response)
-        );
-    }
-
-    /**
-     * 사용자의 활성 토큰 목록 조회
-     */
-    @GetMapping("/my-tokens")
-    @Operation(summary = "내 토큰 목록", description = "현재 사용자의 모든 활성 토큰을 조회합니다.")
+    @PostMapping("/heartbeat")
+    @Operation(summary = "Heartbeat 전송", description = "사용자가 활성 상태임을 알리는 heartbeat을 전송합니다.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
-                    description = "조회 성공",
-                    content = @Content(schema = @Schema(implementation = QueueStatusResponse.class))),
+                    description = "Heartbeat 수신 완료"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
-                    description = "인증 실패",
-                    content = @Content)
+                    description = "인증 실패")
     })
-    public ResponseEntity<ApiResponse<List<QueueStatusResponse>>> getMyTokens(
+    public ResponseEntity<ApiResponse<String>> sendHeartbeat(
+            @Valid @RequestBody HeartbeatRequest request,
             Authentication authentication) {
 
         String username = authentication.getName();
         User user = userService.findByUsername(username);
 
-        List<QueueStatusResponse> responses = queueService.getUserActiveTokens(user.getUserId());
+        queueService.updateHeartbeat(
+                user.getUserId(),
+                request.getPerformanceId(),
+                request.getScheduleId()
+        );
 
         return ResponseEntity.ok(
-                ApiResponse.success("토큰 목록 조회 성공", responses)
+                ApiResponse.success("Heartbeat 수신됨")
+        );
+    }
+
+    /**
+     * 세션 명시적 해제 (페이지 이탈 시)
+     */
+    @PostMapping("/release-session")
+    @Operation(summary = "세션 해제", description = "사용자가 페이지를 떠날 때 세션을 명시적으로 해제합니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "세션 해제 완료"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 실패")
+    })
+    public ResponseEntity<ApiResponse<String>> releaseSession(
+            @Valid @RequestBody SessionReleaseRequest request,
+            Authentication authentication) {
+
+        String username = authentication.getName();
+        User user = userService.findByUsername(username);
+
+        queueService.releaseSession(
+                user.getUserId(),
+                request.getPerformanceId(),
+                request.getScheduleId()
+        );
+
+        return ResponseEntity.ok(
+                ApiResponse.success("세션이 해제되었습니다")
         );
     }
 
@@ -162,5 +168,31 @@ public class QueueController {
         return ResponseEntity.ok(
                 ApiResponse.success("토큰이 취소되었습니다")
         );
+    }
+
+    /**
+     * 세션 초기화 (테스트용 - 관리자 전용)
+     */
+    @PostMapping("/clear-sessions")
+    @Operation(summary = "세션 초기화", description = "테스트를 위해 모든 활성 세션을 초기화합니다. (관리자 전용)")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "세션 초기화 완료",
+                    content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 실패",
+                    content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "관리자 권한 필요",
+                    content = @Content)
+    })
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<String>> clearAllSessions() {
+        queueService.clearAllSessions();
+        return ResponseEntity.ok(ApiResponse.success("모든 세션이 초기화되었습니다"));
     }
 }

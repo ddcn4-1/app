@@ -14,14 +14,16 @@ import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -34,8 +36,14 @@ public class QueueService {
     private final UserRepository userRepository;
     private final RedisTemplate<String, String> redisTemplate;
 
+    private static final String SESSION_KEY_PREFIX = "active_sessions:";
+    private static final String LOCK_KEY_PREFIX = "heartbeat:";
+
     @Value("${queue.max-active-tokens:100}")
     private int maxActiveTokens;
+
+    @Value("${queue.overbooking-ratio:1.5}")
+    private double overbookingRatio;
 
     @Value("${queue.token-valid-hours:24}")
     private int tokenValidHours;
@@ -43,193 +51,197 @@ public class QueueService {
     @Value("${queue.booking-time-minutes:10}")
     private int bookingTimeMinutes;
 
-    private final SecureRandom secureRandom = new SecureRandom();
-    private static final int MAX_CONCURRENT_SESSIONS = 2; // 동시 처리 한계
-    private static final String LOCK_KEY_PREFIX = "session_lock:";
-    private static final String SESSION_KEY_PREFIX = "active_sessions:";
+    @Value("${queue.session-timeout-minutes:5}")
+    private int sessionTimeoutMinutes;
 
-    // Lua 스크립트로 원자적 락 해제
-    private static final String RELEASE_LOCK_SCRIPT =
-            "if redis.call('GET', KEYS[1]) == ARGV[1] then " +
-                    "    return redis.call('DEL', KEYS[1]) " +
-                    "else " +
-                    "    return 0 " +
-                    "end";
+    @Value("${queue.max-inactive-minutes:2}")
+    private int maxInactiveMinutes;
+
+    private final SecureRandom secureRandom = new SecureRandom();
 
     /**
-     * 대기열 필요성 확인 - 동시성 제어 추가
+     * 오버부킹이 적용된 최대 동시 세션 수 계산
+     */
+    private int getMaxConcurrentSessions() {
+        return (int) (maxActiveTokens * overbookingRatio);
+    }
+
+    /**
+     * 대기열 필요성 확인 (오버부킹 적용)
      */
     public QueueCheckResponse checkQueueRequirement(Long performanceId, Long scheduleId, Long userId) {
-        String sessionKey = SESSION_KEY_PREFIX + performanceId + ":" + scheduleId;
-        String lockKey = LOCK_KEY_PREFIX + performanceId + ":" + scheduleId;
-        String lockValue = UUID.randomUUID().toString();
+        String sessionKey = "active_sessions:" + performanceId + ":" + scheduleId;
 
+        // 현재 활성 세션 수 확인
+        String currentSessions = redisTemplate.opsForValue().get(sessionKey);
+        int activeSessions = currentSessions != null ? Integer.parseInt(currentSessions) : 0;
+
+        int maxConcurrentSessions = getMaxConcurrentSessions();
+
+        if (activeSessions < maxConcurrentSessions) {
+            // 바로 진입 허용 (오버부킹 범위 내)
+            redisTemplate.opsForValue().increment(sessionKey);
+            redisTemplate.expire(sessionKey, Duration.ofMinutes(sessionTimeoutMinutes));
+
+            // 사용자 heartbeat 추적 시작
+            startHeartbeatTracking(userId, performanceId, scheduleId);
+
+            return QueueCheckResponse.builder()
+                    .requiresQueue(false)
+                    .canProceedDirectly(true)
+                    .sessionId(UUID.randomUUID().toString())
+                    .message("좌석 선택으로 이동합니다")
+                    .currentActiveSessions(activeSessions + 1)
+                    .maxConcurrentSessions(maxConcurrentSessions)
+                    .reason("서버 여유 있음 (오버부킹 범위)")
+                    .build();
+        } else {
+            // 대기열 필요
+            int waitingCount = getCurrentWaitingCount(performanceId);
+            int estimatedWait = waitingCount * 30; // 1인당 30초 예상
+
+            return QueueCheckResponse.builder()
+                    .requiresQueue(true)
+                    .canProceedDirectly(false)
+                    .message("현재 많은 사용자가 접속중입니다. 대기열에 참여합니다.")
+                    .currentActiveSessions(activeSessions)
+                    .maxConcurrentSessions(maxConcurrentSessions)
+                    .estimatedWaitTime(estimatedWait)
+                    .currentWaitingCount(waitingCount)
+                    .reason("서버 용량 초과 (오버부킹 한계)")
+                    .build();
+        }
+    }
+
+    /**
+     * 사용자 heartbeat 추적 시작
+     */
+    private void startHeartbeatTracking(Long userId, Long performanceId, Long scheduleId) {
+        String heartbeatKey = "heartbeat:" + userId + ":" + performanceId + ":" + scheduleId;
+        redisTemplate.opsForValue().set(heartbeatKey,
+                LocalDateTime.now().toString(),
+                Duration.ofMinutes(maxInactiveMinutes));
+    }
+
+    /**
+     * Heartbeat 업데이트
+     */
+    public void updateHeartbeat(Long userId, Long performanceId, Long scheduleId) {
+        String heartbeatKey = "heartbeat:" + userId + ":" + performanceId + ":" + scheduleId;
+        redisTemplate.opsForValue().set(heartbeatKey,
+                LocalDateTime.now().toString(),
+                Duration.ofMinutes(maxInactiveMinutes));
+
+        log.debug("Heartbeat updated for user {} in performance {}", userId, performanceId);
+    }
+
+    /**
+     * 세션 명시적 해제 (사용자가 페이지를 떠날 때)
+     */
+    public void releaseSession(Long userId, Long performanceId, Long scheduleId) {
+        String sessionKey = "active_sessions:" + performanceId + ":" + scheduleId;
+        String heartbeatKey = "heartbeat:" + userId + ":" + performanceId + ":" + scheduleId;
+
+        // 세션 카운트 감소
+        Long currentCount = redisTemplate.opsForValue().decrement(sessionKey);
+        if (currentCount < 0) {
+            redisTemplate.opsForValue().set(sessionKey, "0");
+        }
+
+        // heartbeat 추적 중단
+        redisTemplate.delete(heartbeatKey);
+
+        log.info("Session released for user {} in performance {}", userId, performanceId);
+
+        // 다음 대기자 활성화
+        Performance performance = performanceRepository.findById(performanceId).orElse(null);
+        if (performance != null) {
+            activateNextTokens(performance);
+        }
+    }
+
+    /**
+     * 비활성 세션 정리 (스케줄러에서 호출)
+     */
+    @Transactional
+    public void cleanupInactiveSessions() {
         try {
-            // 1. 분산 락 획득 시도 (최대 3초 대기)
-            boolean lockAcquired = acquireDistributedLock(lockKey, lockValue, 3000);
+            log.debug("비활성 세션 정리 작업 시작");
 
-            if (!lockAcquired) {
-                log.warn("Failed to acquire lock for performance {}, schedule {} - directing to queue",
-                        performanceId, scheduleId);
-                return createQueueRequiredResponse(performanceId, "시스템 처리 중입니다. 대기열에 참여해주세요.");
-            }
+            // 만료된 heartbeat 키들을 찾아서 정리
+            // 실제로는 Redis의 expired event나 별도 추적 구조가 필요하지만
+            // 여기서는 간단히 만료된 토큰들을 통해 처리
 
-            try {
-                // 2. 현재 활성 세션 수 확인
-                String currentSessionsStr = redisTemplate.opsForValue().get(sessionKey);
-                int currentSessions = currentSessionsStr != null ? Integer.parseInt(currentSessionsStr) : 0;
+            LocalDateTime cutoff = LocalDateTime.now().minusMinutes(maxInactiveMinutes);
+            List<QueueToken> potentiallyInactive = queueTokenRepository
+                    .findTokensLastAccessedBefore(cutoff); // 이 메서드는 추가 구현 필요
 
-                log.info("Current sessions for performance {}, schedule {}: {}/{}",
-                        performanceId, scheduleId, currentSessions, MAX_CONCURRENT_SESSIONS);
+            for (QueueToken token : potentiallyInactive) {
+                String heartbeatKey = "heartbeat:" + token.getUser().getUserId() +
+                        ":" + token.getPerformance().getPerformanceId() + ":*";
 
-                // 3. 세션 한도 체크
-                if (currentSessions < MAX_CONCURRENT_SESSIONS) {
-                    // 세션 카운트 증가
-                    Long newCount = redisTemplate.opsForValue().increment(sessionKey);
-
-                    // 세션 만료 시간 설정 (10분)
-                    redisTemplate.expire(sessionKey, Duration.ofMinutes(10));
-
-                    log.info("User {} granted direct access. New session count: {}", userId, newCount);
-
-                    return QueueCheckResponse.builder()
-                            .requiresQueue(false)
-                            .canProceedDirectly(true)
-                            .sessionId(UUID.randomUUID().toString())
-                            .message("좌석 선택으로 이동합니다")
-                            .currentActiveSessions(newCount.intValue())
-                            .maxConcurrentSessions(MAX_CONCURRENT_SESSIONS)
-                            .reason("서버 여유 있음")
-                            .build();
-                } else {
-                    log.info("Session limit reached for performance {}, schedule {}. Directing user {} to queue",
-                            performanceId, scheduleId, userId);
-                    return createQueueRequiredResponse(performanceId,
-                            "현재 많은 사용자가 접속중입니다. 대기열에 참여합니다.");
+                // heartbeat 확인
+                if (!redisTemplate.hasKey(heartbeatKey)) {
+                    log.info("비활성 세션 정리: 토큰 {}", token.getToken());
+                    // 세션 해제 처리
+                    releaseSessionByToken(token);
                 }
-
-            } finally {
-                // 4. 분산 락 해제
-                releaseDistributedLock(lockKey, lockValue);
             }
 
+            log.debug("비활성 세션 정리 작업 완료");
         } catch (Exception e) {
-            log.error("Error in checkQueueRequirement for performance {}, schedule {}: {}",
-                    performanceId, scheduleId, e.getMessage(), e);
-
-            // 오류 시 안전하게 대기열로 유도
-            return createQueueRequiredResponse(performanceId, "시스템 안정성을 위해 대기열에 참여합니다.");
+            log.error("비활성 세션 정리 중 오류 발생", e);
         }
     }
 
     /**
-     * 분산 락 획득
+     * 토큰으로 세션 해제
      */
-    private boolean acquireDistributedLock(String lockKey, String lockValue, long timeoutMs) {
-        try {
-            long startTime = System.currentTimeMillis();
-            long endTime = startTime + timeoutMs;
+    private void releaseSessionByToken(QueueToken token) {
+        if (token.getStatus() == QueueToken.TokenStatus.ACTIVE) {
+            token.markAsExpired();
+            queueTokenRepository.save(token);
 
-            while (System.currentTimeMillis() < endTime) {
-                Boolean acquired = redisTemplate.opsForValue()
-                        .setIfAbsent(lockKey, lockValue, Duration.ofSeconds(10));
-
-                if (Boolean.TRUE.equals(acquired)) {
-                    log.debug("Lock acquired: {}", lockKey);
-                    return true;
-                }
-
-                // 짧은 대기 후 재시도
-                Thread.sleep(50);
-            }
-
-            log.warn("Failed to acquire lock within timeout: {}", lockKey);
-            return false;
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Lock acquisition interrupted: {}", lockKey);
-            return false;
-        } catch (Exception e) {
-            log.error("Error acquiring lock {}: {}", lockKey, e.getMessage());
-            return false;
+            // 다음 대기자 활성화
+            activateNextTokens(token.getPerformance());
         }
     }
 
     /**
-     * 분산 락 해제 (Lettuce 기반)
+     * 현재 대기 중인 사용자 수 조회
      */
-    private void releaseDistributedLock(String lockKey, String lockValue) {
-        try {
-            DefaultRedisScript<Long> script = new DefaultRedisScript<>();
-            script.setScriptText(RELEASE_LOCK_SCRIPT);
-            script.setResultType(Long.class);
-
-            Long result = redisTemplate.execute(script,
-                    Collections.singletonList(lockKey), lockValue);
-
-            if (result != null && result > 0) {
-                log.debug("Lock released: {}", lockKey);
-            } else {
-                log.warn("Failed to release lock or lock not owned: {}", lockKey);
-            }
-
-        } catch (Exception e) {
-            log.error("Error releasing lock {}: {}", lockKey, e.getMessage());
-        }
-    }
-
-    /**
-     * 대기열 필요 응답 생성
-     */
-    private QueueCheckResponse createQueueRequiredResponse(Long performanceId, String message) {
-        int waitingCount = getCurrentWaitingCount(performanceId);
-        int estimatedWait = Math.max(waitingCount * 30, 60); // 최소 1분 대기
-
-        return QueueCheckResponse.builder()
-                .requiresQueue(true)
-                .canProceedDirectly(false)
-                .message(message)
-                .currentActiveSessions(MAX_CONCURRENT_SESSIONS)
-                .maxConcurrentSessions(MAX_CONCURRENT_SESSIONS)
-                .estimatedWaitTime(estimatedWait)
-                .currentWaitingCount(waitingCount)
-                .reason("서버 용량 초과")
-                .build();
-    }
-
-    /**
-     * 세션 해제 (사용자가 좌석 선택을 완료하거나 이탈할 때 호출)
-     */
-    public void releaseSession(Long performanceId, Long scheduleId, String sessionId) {
-        String sessionKey = SESSION_KEY_PREFIX + performanceId + ":" + scheduleId;
-
-        try {
-            Long currentCount = redisTemplate.opsForValue().decrement(sessionKey);
-            log.info("Session released for performance {}, schedule {}. Remaining: {}",
-                    performanceId, scheduleId, Math.max(currentCount != null ? currentCount : 0, 0));
-
-            // 카운트가 0 이하가 되면 키 삭제
-            if (currentCount != null && currentCount <= 0) {
-                redisTemplate.delete(sessionKey);
-            }
-
-        } catch (Exception e) {
-            log.error("Error releasing session for performance {}, schedule {}: {}",
-                    performanceId, scheduleId, e.getMessage());
-        }
-    }
-
     private int getCurrentWaitingCount(Long performanceId) {
-        try {
-            Performance performance = performanceRepository.findById(performanceId).orElse(null);
-            if (performance == null) return 0;
+        Performance performance = performanceRepository.findById(performanceId).orElse(null);
+        if (performance == null) return 0;
 
-            Long waitingCount = queueTokenRepository.countWaitingTokensByPerformance(performance);
-            return waitingCount != null ? waitingCount.intValue() : 0;
-        } catch (Exception e) {
-            log.error("Error getting waiting count for performance {}: {}", performanceId, e.getMessage());
-            return 5; // 기본값
+        return queueTokenRepository.countWaitingTokensByPerformance(performance).intValue();
+    }
+
+    /**
+     * 다음 대기자들을 활성화 (기존 로직 유지)
+     */
+    private void activateNextTokens(Performance performance) {
+        Long activeCount = queueTokenRepository.countActiveTokensByPerformance(performance);
+        int maxConcurrentSessions = getMaxConcurrentSessions();
+
+        if (activeCount < maxConcurrentSessions) {
+            int tokensToActivate = (int) (maxConcurrentSessions - activeCount);
+
+            List<QueueToken> waitingTokens = queueTokenRepository
+                    .findTokensToActivate(performance);
+
+            waitingTokens.stream()
+                    .limit(tokensToActivate)
+                    .forEach(token -> {
+                        token.activate();
+                        log.info("토큰 활성화: {} (오버부킹 적용)", token.getToken());
+                    });
+
+            if (!waitingTokens.isEmpty()) {
+                queueTokenRepository.saveAll(waitingTokens.stream()
+                        .limit(tokensToActivate)
+                        .toList());
+            }
         }
     }
 
@@ -433,10 +445,12 @@ public class QueueService {
             log.info("오래된 토큰 {} 개 정리 완료", oldTokens.size());
         }
     }
+
     /**
      * 모든 세션 초기화 (테스트용)
      */
     public void clearAllSessions() {
+
         try {
             // Redis에서 모든 세션 키 삭제
             String sessionPattern = SESSION_KEY_PREFIX + "*";
@@ -558,29 +572,6 @@ public class QueueService {
         }
     }
 
-    private void activateNextTokens(Performance performance) {
-        Long activeCount = queueTokenRepository.countActiveTokensByPerformance(performance);
-
-        if (activeCount < maxActiveTokens) {
-            int tokensToActivate = (int) (maxActiveTokens - activeCount);
-
-            List<QueueToken> waitingTokens = queueTokenRepository
-                    .findTokensToActivate(performance);
-
-            waitingTokens.stream()
-                    .limit(tokensToActivate)
-                    .forEach(token -> {
-                        token.activate();
-                        log.info("토큰 활성화: {}", token.getToken());
-                    });
-
-            if (!waitingTokens.isEmpty()) {
-                queueTokenRepository.saveAll(waitingTokens.stream()
-                        .limit(tokensToActivate)
-                        .toList());
-            }
-        }
-    }
 
     private void updateWaitingQueuePositions(Performance performance) {
         List<QueueToken> waitingTokens = queueTokenRepository

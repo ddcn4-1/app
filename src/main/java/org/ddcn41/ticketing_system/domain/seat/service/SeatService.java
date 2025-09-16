@@ -40,7 +40,7 @@ public class SeatService {
     private final UserRepository userRepository;
     private final RedisTemplate<String, String> redisTemplate;
 
-    private static final int LOCK_DURATION_MINUTES = 10;
+    private static final int LOCK_DURATION_MINUTES = 1;
     private static final String REDIS_LOCK_PREFIX = "seat_lock:";
 
     /**
