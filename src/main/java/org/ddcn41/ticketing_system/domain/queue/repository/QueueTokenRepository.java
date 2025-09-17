@@ -21,13 +21,21 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     Optional<QueueToken> findByToken(String token);
 
     /**
-     * 사용자와 공연으로 활성 토큰 조회
+     * 사용자와 공연으로 활성 토큰 조회 (가장 최근 것 하나만)
+     * todo. 여러 개 공연일 경우 수정요함
+     * 기존 메서드에서 ORDER BY와 LIMIT 추가
      */
     @Query("SELECT qt FROM QueueToken qt WHERE qt.user = :user AND qt.performance = :performance " +
-            "AND qt.status IN ('WAITING', 'ACTIVE') " +
-            "AND (qt.expiresAt > CURRENT_TIMESTAMP) " +
-            "ORDER BY qt.createdAt DESC")
+            "AND qt.status IN ('WAITING', 'ACTIVE') ORDER BY qt.createdAt DESC LIMIT 1")
     Optional<QueueToken> findActiveTokenByUserAndPerformance(@Param("user") User user,
+                                                             @Param("performance") Performance performance);
+
+    /**
+     * 사용자와 공연으로 모든 활성 토큰 조회 (중복 토큰 확인용)
+     */
+    @Query("SELECT qt FROM QueueToken qt WHERE qt.user = :user AND qt.performance = :performance " +
+            "AND qt.status IN ('WAITING', 'ACTIVE') ORDER BY qt.createdAt DESC")
+    List<QueueToken> findAllActiveTokensByUserAndPerformance(@Param("user") User user,
                                                              @Param("performance") Performance performance);
 
     /**
@@ -38,10 +46,21 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     List<QueueToken> findWaitingTokensByPerformance(@Param("performance") Performance performance);
 
     /**
-     * 특정 공연의 대기열에서 사용자의 순서 조회
+     * 특정 공연의 대기 중인 토큰들을 발급 시간 순서로 조회
      */
-    @Query("SELECT COUNT(qt) FROM QueueToken qt WHERE qt.performance = :performance " +
-            "AND qt.status = 'WAITING' AND qt.issuedAt < :issuedAt")
+    @Query("SELECT qt FROM QueueToken qt " +
+            "WHERE qt.performance = :performance " +
+            "AND qt.status = 'WAITING' " +
+            "ORDER BY qt.issuedAt ASC")
+    List<QueueToken> findWaitingTokensByPerformanceOrderByIssuedAt(@Param("performance") Performance performance);
+
+    /**
+     * 특정 시간 이전에 발급된 대기 중인 토큰 개수 (위치 계산용)
+     */
+    @Query("SELECT COUNT(qt) FROM QueueToken qt " +
+            "WHERE qt.performance = :performance " +
+            "AND qt.status = 'WAITING' " +
+            "AND qt.issuedAt < :issuedAt")
     Long findPositionInQueue(@Param("performance") Performance performance,
                              @Param("issuedAt") LocalDateTime issuedAt);
 

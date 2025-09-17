@@ -34,6 +34,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/queue")
@@ -227,46 +228,50 @@ public class QueueController {
     }
 
     /**
-     * 세션 명시적 해제 (페이지 이탈 시)
-     * Beacon API와 일반 요청을 모두 지원
+     * Beacon API용 세션 해제 (인증 불필요)
+     * 페이지 언로드 시 Beacon으로만 호출되는 엔드포인트
      */
+//    @CrossOrigin(origins = "*") // 모든 origin 허용
     @PostMapping("/release-session")
-    @Operation(summary = "세션 해제", description = "사용자가 페이지를 떠날 때 세션을 명시적으로 해제합니다.")
-    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Beacon 세션 해제", description = "Beacon API를 통한 세션 해제 (인증 불필요)")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "세션 해제 완료"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "401",
-                    description = "인증 실패")
+                    responseCode = "400",
+                    description = "잘못된 요청")
     })
-    public ResponseEntity<ApiResponse<String>> releaseSession(
-            @RequestBody(required = false) SessionReleaseRequest request,
-            Authentication authentication,
+    public ResponseEntity<ApiResponse<String>> releaseSessionBeacon(
+            @RequestBody(required = false) Map<String, Object> request,
             HttpServletRequest httpRequest) {
-
+        System.out.println("=== releaseSessionBeacon 호출됨 ===");
+        System.out.println("Request: " + request);
         try {
-            String username = authentication != null ? authentication.getName() : "unknown";
-            String contentType = httpRequest.getContentType();
-            String userAgent = httpRequest.getHeader("User-Agent");
+            // Beacon 요청에서는 JSON 파싱이 제한적일 수 있으므로 안전하게 처리
+            if (request != null) {
+                Object performanceIdObj = request.get("performanceId");
+                Object scheduleIdObj = request.get("scheduleId");
+                Object userIdObj = request.get("userId"); // 클라이언트에서 추가로 전송
 
-            if (authentication != null && request != null) {
-                User user = userService.findByUsername(username);
-                queueService.releaseSession(
-                        user.getUserId(),
-                        request.getPerformanceId(),
-                        request.getScheduleId()
-                );
+                if (performanceIdObj != null && scheduleIdObj != null && userIdObj != null) {
+                    Long performanceId = Long.valueOf(performanceIdObj.toString());
+                    Long scheduleId = Long.valueOf(scheduleIdObj.toString());
+                    Long userId = Long.valueOf(userIdObj.toString());
+
+                    queueService.releaseSession(userId, performanceId, scheduleId);
+//                    log.info("Beacon으로 세션 해제 - userId: {}, performanceId: {}", userId, performanceId);
+                }
             }
 
             return ResponseEntity.ok(
-                    ApiResponse.success("세션이 해제되었습니다")
+                    ApiResponse.success("Beacon 세션 해제 처리됨")
             );
         } catch (Exception e) {
-            // Beacon 요청의 특성상 에러가 발생해도 200을 반환
+//            log.warn("Beacon 세션 해제 오류: {}", e.getMessage());
+            // Beacon의 특성상 에러가 발생해도 200을 반환
             return ResponseEntity.ok(
-                    ApiResponse.success("세션 해제 처리됨")
+                    ApiResponse.success("Beacon 세션 해제 시도됨")
             );
         }
     }

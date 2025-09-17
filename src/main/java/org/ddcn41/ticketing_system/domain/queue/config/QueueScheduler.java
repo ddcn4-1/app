@@ -19,7 +19,7 @@ public class QueueScheduler {
      * - 대기 중인 토큰 활성화
      * - 대기열 순서 업데이트
      */
-    @Scheduled(fixedRate = 30000) // 30초
+   /* @Scheduled(fixedRate = 30000) // 30초
     public void processQueue() {
         try {
             log.debug("대기열 처리 작업 시작");
@@ -28,7 +28,7 @@ public class QueueScheduler {
         } catch (Exception e) {
             log.error("대기열 처리 중 오류 발생", e);
         }
-    }
+    }*/
 
     /**
      * 1시간마다 오래된 사용 완료 토큰 정리

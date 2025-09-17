@@ -73,6 +73,7 @@ public class BookingService {
                         "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 권한이 없습니다. 대기열을 통해 다시 시도해주세요.");
             }
 
+            // ⭐ 토큰 유효성 재확인 (동시성 이슈 대응)
             try {
                 QueueToken queueToken = queueService.getTokenByString(req.getQueueToken());
                 if (!queueToken.isActiveForBooking()) {

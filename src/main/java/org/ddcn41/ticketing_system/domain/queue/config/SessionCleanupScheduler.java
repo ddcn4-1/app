@@ -11,60 +11,43 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class SessionCleanupScheduler {
 
-    private final QueueService queueService;
+//todo. 스케줄 시간 수정 필요 위의 내용 기본내용.
+        private final QueueService queueService;
+    /**
+     * 10초마다 빠른 대기자 활성화 체크 //todo. 필요시 활성화
+     */
+ /*   @Scheduled(fixedRate = 10000) // 10초
+    public void quickActivateNext() {
+        try {
+            log.debug("=== 10초 주기: 대기자 활성화 체크 ===");
+            queueService.quickCleanupAndActivate();
+        } catch (Exception e) {
+            log.error("빠른 활성화 체크 중 오류", e);
+        }
+    }*/
 
     /**
      * 1분마다 비활성 세션 정리
-     * heartbeat가 없는 사용자들의 세션을 해제하여 다음 대기자가 들어올 수 있게 함
      */
-    @Scheduled(fixedRate = 60000) // 1분
+    @Scheduled(fixedRate = 60000)
     public void cleanupInactiveSessions() {
         try {
-            log.debug("비활성 세션 정리 작업 시작");
-            // QueueService에 실제로 있는 메서드 사용
-            queueService.cleanupInactiveSessions(); // 실제 메서드명
-            log.debug("비활성 세션 정리 작업 완료");
+            queueService.cleanupInactiveSessions();
         } catch (Exception e) {
-            log.error("비활성 세션 정리 중 오류 발생", e);
+            log.error("비활성 세션 정리 중 오류", e);
         }
     }
 
     /**
-     * 30초마다 대기열 처리 (기존 기능 유지)
+     * 30초마다 전체 대기열 처리 //todo. 필요시 활성화
      */
-    @Scheduled(fixedRate = 30000) // 30초
+    /*@Scheduled(fixedRate = 30000) // 30초
     public void processQueue() {
         try {
-            log.debug("대기열 처리 작업 시작");
-            queueService.processQueue(); // 기존에 있는 메서드
-            log.debug("대기열 처리 작업 완료");
+            log.debug("=== 30초 주기: 전체 대기열 처리 ===");
+            queueService.processQueue();
         } catch (Exception e) {
-            log.error("대기열 처리 중 오류 발생", e);
+            log.error("대기열 처리 중 오류", e);
         }
-    }
-
-    /**
-     * 5분마다 오버부킹 상태 모니터링
-     */
-    @Scheduled(fixedRate = 300000) // 5분
-    public void monitorOverbookingStatus() {
-        try {
-            log.debug("오버부킹 상태 모니터링 시작");
-
-            // 공연별 대기열 통계 조회 (기존 메서드 활용)
-            var queueStats = queueService.getQueueStatsByPerformance();
-
-            for (var stat : queueStats) {
-                log.info("공연 {} - 대기: {}, 활성: {}, 사용완료: {}",
-                        stat.getPerformanceTitle(),
-                        stat.getWaitingCount(),
-                        stat.getActiveCount(),
-                        stat.getUsedCount());
-            }
-
-            log.debug("오버부킹 상태 모니터링 완료");
-        } catch (Exception e) {
-            log.error("오버부킹 상태 모니터링 중 오류 발생", e);
-        }
-    }
+    }*/
 }

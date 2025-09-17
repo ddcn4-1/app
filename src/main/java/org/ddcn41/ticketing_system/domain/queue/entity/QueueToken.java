@@ -92,15 +92,13 @@ public class QueueToken {
         CANCELLED   // 사용자가 취소
     }
 
-    // === 비즈니스 로직 메서드 ===
-
     /**
      * 토큰을 활성화 상태로 변경
      */
     public void activate() {
         this.status = TokenStatus.ACTIVE;
         this.activatedAt = LocalDateTime.now();
-        this.bookingExpiresAt = LocalDateTime.now().plusMinutes(10); // 10분간 예매 가능
+        this.bookingExpiresAt = LocalDateTime.now().plusMinutes(10); // 기본 10분
         this.positionInQueue = 0;
         this.estimatedWaitTimeMinutes = 0;
     }
