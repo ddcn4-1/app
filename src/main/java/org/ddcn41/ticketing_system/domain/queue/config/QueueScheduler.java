@@ -31,7 +31,7 @@ public class QueueScheduler {
     }*/
 
     /**
-     * 1시간마다 오래된 사용 완료 토큰 정리
+     * 1시간마다 오래된 사용 완료 토큰 정리만 유지
      */
     @Scheduled(fixedRate = 3600000) // 1시간
     public void cleanupOldTokens() {

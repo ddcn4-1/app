@@ -22,8 +22,8 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -35,268 +35,80 @@ public class QueueService {
     private final PerformanceRepository performanceRepository;
     private final UserRepository userRepository;
     private final RedisTemplate<String, String> redisTemplate;
+    private final SecureRandom secureRandom = new SecureRandom();
 
-    private static final String SESSION_KEY_PREFIX = "active_sessions:";
-    private static final String LOCK_KEY_PREFIX = "heartbeat:";
-
-    @Value("${queue.max-active-tokens:100}")
-    private int maxActiveTokens;
-
-    @Value("${queue.overbooking-ratio:1.0}")
-    private double overbookingRatio;
-
-
-    @Value("${queue.session-timeout-minutes:5}")
-    private int sessionTimeoutMinutes;
+    @Value("${queue.max-active-tokens:3}")
+    private int maxActiveTokens; // 최대 3명
 
     @Value("${queue.max-inactive-seconds:120}")
     private int maxInactiveSeconds;
 
+    @Value("${queue.wait-time-per-person:10}")
+    private int waitTimePerPerson; // 1명당 10초
 
-    private final SecureRandom secureRandom = new SecureRandom();
-
-
-    /**
-     * 비활성 세션 정리 (10초마다 실행) - 타임아웃 처리
-     */
-    @Transactional
-    public void cleanupInactiveSessions() {
-        try {
-            log.debug("비활성 세션 정리 시작");
-
-            LocalDateTime cutoff = LocalDateTime.now().minusSeconds(maxInactiveSeconds);
-
-            // Redis heartbeat 키들 검사
-            Set<String> heartbeatKeys = redisTemplate.keys("heartbeat:*");
-
-            if (heartbeatKeys != null && !heartbeatKeys.isEmpty()) {
-                log.debug("검사할 heartbeat 키: {}개", heartbeatKeys.size());
-
-                for (String heartbeatKey : heartbeatKeys) {
-                    try {
-                        String lastHeartbeat = redisTemplate.opsForValue().get(heartbeatKey);
-
-                        if (lastHeartbeat != null) {
-                            LocalDateTime lastTime = LocalDateTime.parse(lastHeartbeat);
-
-                            if (lastTime.isBefore(cutoff)) {
-                                // 타임아웃된 세션 처리
-                                String[] parts = heartbeatKey.split(":");
-                                if (parts.length >= 4) {
-                                    Long userId = Long.parseLong(parts[1]);
-                                    Long performanceId = Long.parseLong(parts[2]);
-                                    Long scheduleId = Long.parseLong(parts[3]);
-
-                                    log.warn("세션 타임아웃 감지 - 사용자: {}, 공연: {}, 마지막활동: {}",
-                                            userId, performanceId, lastTime);
-
-                                    processSessionTimeout(userId, performanceId, scheduleId);
-                                }
-                            }
-                        } else {
-                            // heartbeat 값이 없는 경우도 정리
-                            log.debug("빈 heartbeat 키 제거: {}", heartbeatKey);
-                            redisTemplate.delete(heartbeatKey);
-                        }
-                    } catch (Exception e) {
-                        log.warn("heartbeat 처리 중 오류: {} - {}", heartbeatKey, e.getMessage());
-                    }
-                }
-            }
-
-            // DB에서 만료된 활성 토큰들도 정리
-            cleanupExpiredActiveTokens();
-
-            log.debug("비활성 세션 정리 완료");
-
-        } catch (Exception e) {
-            log.error("비활성 세션 정리 중 오류", e);
-        }
-    }
+    private static final String SESSION_KEY_PREFIX = "active_sessions:";
+    private static final String HEARTBEAT_KEY_PREFIX = "heartbeat:";
+    private static final String ACTIVE_TOKENS_KEY_PREFIX = "active_tokens:"; // 새로 추가
 
     /**
-     * 세션 타임아웃 처리
-     */
-    private void processSessionTimeout(Long userId, Long performanceId, Long scheduleId) {
-        try {
-            // 1. Redis 세션 정리
-            String sessionKey = "active_sessions:" + performanceId + ":" + scheduleId;
-            String heartbeatKey = "heartbeat:" + userId + ":" + performanceId + ":" + scheduleId;
-
-            Long currentCount = redisTemplate.opsForValue().decrement(sessionKey);
-            if (currentCount < 0) {
-                redisTemplate.opsForValue().set(sessionKey, "0");
-            }
-            redisTemplate.delete(heartbeatKey);
-
-            log.info("Redis 세션 정리 - 활성세션: {}, heartbeat 제거완료", currentCount);
-
-            // 2. 사용자 토큰 만료 처리
-            Performance performance = performanceRepository.findById(performanceId).orElse(null);
-            User user = userRepository.findById(userId).orElse(null);
-
-            if (performance != null && user != null) {
-                List<QueueToken> userActiveTokens = queueTokenRepository
-                        .findAllActiveTokensByUserAndPerformance(user, performance);
-
-                int expiredCount = 0;
-                for (QueueToken token : userActiveTokens) {
-                    if (token.getStatus() == QueueToken.TokenStatus.ACTIVE) {
-                        token.markAsExpired();
-                        expiredCount++;
-                        log.info("토큰 만료 처리: {} (사용자: {})",
-                                token.getToken(), user.getUsername());
-                    }
-                }
-
-                if (expiredCount > 0) {
-                    queueTokenRepository.saveAll(userActiveTokens);
-                    log.info("만료 토큰 저장 완료: {}개", expiredCount);
-                }
-
-                // 3. 즉시 다음 대기자 활성화
-                activateNextTokens(performance);
-
-                log.info("타임아웃 처리 완료 - 사용자: {}, 공연: {}, 다음 대기자 활성화됨",
-                        user.getUsername(), performance.getTitle());
-            }
-
-        } catch (Exception e) {
-            log.error("세션 타임아웃 처리 중 오류", e);
-        }
-    }
-
-    /**
-     * DB에서 만료된 활성 토큰 정리
-     */
-    private void cleanupExpiredActiveTokens() {
-        try {
-            List<QueueToken> expiredTokens = queueTokenRepository.findExpiredTokens(LocalDateTime.now());
-
-            int activeExpiredCount = 0;
-            for (QueueToken token : expiredTokens) {
-                if (token.getStatus() == QueueToken.TokenStatus.ACTIVE) {
-                    token.markAsExpired();
-                    activeExpiredCount++;
-
-                    log.info("DB 만료 토큰 처리: {} (만료시간: {})",
-                            token.getToken(), token.getBookingExpiresAt());
-
-                    // 해당 공연의 다음 대기자 활성화
-                    activateNextTokens(token.getPerformance());
-                }
-            }
-
-            if (activeExpiredCount > 0) {
-                queueTokenRepository.saveAll(expiredTokens);
-                log.info("DB 만료 토큰 저장: {}개", activeExpiredCount);
-            }
-
-        } catch (Exception e) {
-            log.error("DB 만료 토큰 정리 중 오류", e);
-        }
-    }
-
-
-
-    /**
-     * 빠른 정리 및 다음 대기자 활성화 (5초마다 실행)
-     */
-    public void quickCleanupAndActivate() {
-        try {
-            List<Performance> performances = performanceRepository.findAll();
-
-            for (Performance performance : performances) {
-                Long activeCount = queueTokenRepository.countActiveTokensByPerformance(performance);
-                int maxConcurrentSessions = getMaxConcurrentSessions();
-
-                log.debug("공연 {} - 활성: {}/{}, 여유있음: {}",
-                        performance.getTitle(), activeCount, maxConcurrentSessions,
-                        activeCount < maxConcurrentSessions);
-
-                if (activeCount < maxConcurrentSessions) {
-                    int beforeActivation = queueTokenRepository.countWaitingTokensByPerformance(performance).intValue();
-
-                    // 대기자 활성화
-                    activateNextTokens(performance);
-
-                    int afterActivation = queueTokenRepository.countWaitingTokensByPerformance(performance).intValue();
-
-                    if (beforeActivation > afterActivation) {
-                        log.info("대기자 활성화 완료 - 공연: {}, 대기자: {} → {}",
-                                performance.getTitle(), beforeActivation, afterActivation);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("빠른 정리 작업 중 오류", e);
-        }
-    }
-//    -------------------------------------------------------------
-
-    /**
-     * 오버부킹이 적용된 최대 동시 세션 수 계산
-     */
-    private int getMaxConcurrentSessions() {
-        return (int) (maxActiveTokens * overbookingRatio);
-    }
-
-    /**
-     * 대기열 필요성 확인 (오버부킹 적용)
+     * 대기열 필요성 확인 - Redis 기반으로 통일
      */
     public QueueCheckResponse checkQueueRequirement(Long performanceId, Long scheduleId, Long userId) {
-        String sessionKey = "active_sessions:" + performanceId + ":" + scheduleId;
+        String sessionKey = SESSION_KEY_PREFIX + performanceId + ":" + scheduleId;
+        String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
 
         try {
-            // 현재 활성 세션 수 확인
-            String currentSessions = redisTemplate.opsForValue().get(sessionKey);
-            int activeSessions = currentSessions != null ? Integer.parseInt(currentSessions) : 0;
+            // Redis에서 현재 활성 토큰 수 확인 (DB 대신 Redis 사용)
+            String activeTokensStr = redisTemplate.opsForValue().get(activeTokensKey);
+            int activeTokens = activeTokensStr != null ? Integer.parseInt(activeTokensStr) : 0;
 
-            int maxConcurrentSessions = getMaxConcurrentSessions(); // 오버부킹 적용된 값
+            log.info("=== 대기열 확인 ===");
+            log.info("사용자: {}, 현재 활성 토큰: {}/{}", userId, activeTokens, maxActiveTokens);
+            log.info("Redis activeTokensKey: {}, 값: {}", activeTokensKey, activeTokensStr);
 
-            if (activeSessions < maxConcurrentSessions) {
-                // 바로 진입 허용 (오버부킹 범위 내)
+            if (activeTokens < maxActiveTokens) {
+                // Redis에서 활성 토큰 수 증가
+                redisTemplate.opsForValue().increment(activeTokensKey);
+                redisTemplate.expire(activeTokensKey, Duration.ofMinutes(10));
+
+                // 세션도 증가 (기존 로직 유지)
                 redisTemplate.opsForValue().increment(sessionKey);
-                redisTemplate.expire(sessionKey, Duration.ofMinutes(sessionTimeoutMinutes));
+                redisTemplate.expire(sessionKey, Duration.ofMinutes(10));
 
-                // 사용자 heartbeat 추적 시작
-                startHeartbeatTracking(userId, performanceId, scheduleId);
+                // heartbeat 시작
+                startHeartbeat(userId, performanceId, scheduleId);
+
+                log.info(">>> 바로 입장 허용 - 새로운 활성 토큰 수: {}", activeTokens + 1);
 
                 return QueueCheckResponse.builder()
                         .requiresQueue(false)
                         .canProceedDirectly(true)
                         .sessionId(UUID.randomUUID().toString())
                         .message("좌석 선택으로 이동합니다")
-                        .currentActiveSessions(activeSessions + 1)
-                        .maxConcurrentSessions(maxConcurrentSessions)
-                        .reason("서버 여유 있음 (오버부킹 범위)")
+                        .currentActiveSessions(activeTokens + 1)
+                        .maxConcurrentSessions(maxActiveTokens)
+                        .reason("서버 여유 있음")
                         .build();
             } else {
                 // 대기열 필요
-                Performance performance = performanceRepository.findById(performanceId).orElse(null);
-                int waitingCount = performance != null ? getCurrentWaitingCount(performanceId) : 0;
-                int estimatedWait = waitingCount * 30; // 1인당 30초 예상
+                int waitingCount = getRedisWaitingCount(performanceId);
+                int estimatedWait = (waitingCount + 1) * waitTimePerPerson;
 
-
-                //todo. 디버그용 삭제예정
-                System.out.println(" 대기열 확인 - 사용자: " + userId +
-                        ", 현재세션: " + activeSessions + "/" + maxConcurrentSessions +
-                        ", 대기열필요: " + (activeSessions >= maxConcurrentSessions));
+                log.info(">>> 대기열 필요 - 대기자: {}명, 예상 대기: {}초", waitingCount + 1, estimatedWait);
 
                 return QueueCheckResponse.builder()
                         .requiresQueue(true)
                         .canProceedDirectly(false)
                         .message("현재 많은 사용자가 접속중입니다. 대기열에 참여합니다.")
-                        .currentActiveSessions(activeSessions)
-                        .maxConcurrentSessions(maxConcurrentSessions)
+                        .currentActiveSessions(activeTokens)
+                        .maxConcurrentSessions(maxActiveTokens)
                         .estimatedWaitTime(estimatedWait)
-                        .currentWaitingCount(waitingCount)
-                        .reason("서버 용량 초과 (오버부킹 한계)")
+                        .currentWaitingCount(waitingCount + 1)
+                        .reason("서버 용량 초과 (3명 초과)")
                         .build();
             }
         } catch (Exception e) {
             log.error("대기열 확인 중 오류 발생", e);
-            // 오류 시 안전하게 대기열로 보냄
             return QueueCheckResponse.builder()
                     .requiresQueue(true)
                     .canProceedDirectly(false)
@@ -307,109 +119,7 @@ public class QueueService {
     }
 
     /**
-     * 사용자 heartbeat 추적 시작
-     */
-    private void startHeartbeatTracking(Long userId, Long performanceId, Long scheduleId) {
-        String heartbeatKey = "heartbeat:" + userId + ":" + performanceId + ":" + scheduleId;
-        String currentTime = LocalDateTime.now().toString();
-
-        // 🔍 로그 추가
-        log.info("startHeartbeatTracking 호출 - 키: {}, 시간: {}, TTL: {}초",
-                heartbeatKey, currentTime, maxInactiveSeconds);
-
-        redisTemplate.opsForValue().set(heartbeatKey,
-                currentTime,
-                Duration.ofSeconds(maxInactiveSeconds));
-
-        // 저장 후 확인
-        String saved = redisTemplate.opsForValue().get(heartbeatKey);
-        log.info(" Redis 저장 확인 - 키: {}, 저장된 값: {}", heartbeatKey, saved);
-    }
-
-    /**
-     * Heartbeat 업데이트
-     */
-    public void updateHeartbeat(Long userId, Long performanceId, Long scheduleId) {
-        String heartbeatKey = "heartbeat:" + userId + ":" + performanceId + ":" + scheduleId;
-        redisTemplate.opsForValue().set(heartbeatKey,
-                LocalDateTime.now().toString(),
-                Duration.ofSeconds(maxInactiveSeconds));
-
-        log.debug("Heartbeat updated for user {} in performance {}", userId, performanceId);
-    }
-
-    /**
-     * 세션 명시적 해제 (사용자가 페이지를 떠날 때)
-     */
-    public void releaseSession(Long userId, Long performanceId, Long scheduleId) {
-        String sessionKey = "active_sessions:" + performanceId + ":" + scheduleId;
-        String heartbeatKey = "heartbeat:" + userId + ":" + performanceId + ":" + scheduleId;
-
-        // 세션 카운트 감소
-        Long currentCount = redisTemplate.opsForValue().decrement(sessionKey);
-        if (currentCount < 0) {
-            redisTemplate.opsForValue().set(sessionKey, "0");
-        }
-
-        // heartbeat 추적 중단
-        redisTemplate.delete(heartbeatKey);
-
-        log.info("Session released for user {} in performance {}", userId, performanceId);
-
-        // 다음 대기자 활성화
-        Performance performance = performanceRepository.findById(performanceId).orElse(null);
-        if (performance != null) {
-            activateNextTokens(performance);
-        }
-    }
-
-
-
-    /**
-     * 현재 대기 중인 사용자 수 조회
-     */
-    private int getCurrentWaitingCount(Long performanceId) {
-        Performance performance = performanceRepository.findById(performanceId).orElse(null);
-        if (performance == null) return 0;
-
-        return queueTokenRepository.countWaitingTokensByPerformance(performance).intValue();
-    }
-
-    /**
-     * 다음 대기자들을 활성화
-     */
-    private void activateNextTokens(Performance performance) {
-        Long activeCount = queueTokenRepository.countActiveTokensByPerformance(performance);
-        int maxConcurrentSessions = getMaxConcurrentSessions();
-
-        if (activeCount < maxConcurrentSessions) {
-            int tokensToActivate = (int) (maxConcurrentSessions - activeCount);
-
-            List<QueueToken> waitingTokens = queueTokenRepository
-                    .findTokensToActivate(performance);
-
-            List<QueueToken> tokensToUpdate = waitingTokens.stream()
-                    .limit(tokensToActivate)
-                    .peek(token -> {
-                        token.activate();
-                        // 활성화된 토큰은 위치를 0으로 설정
-                        token.setPositionInQueue(0);
-                        token.setEstimatedWaitTimeMinutes(0);
-                        log.info("토큰 활성화: {} (오버부킹 적용)", token.getToken());
-                    })
-                    .toList();
-
-            if (!tokensToUpdate.isEmpty()) {
-                queueTokenRepository.saveAll(tokensToUpdate);
-
-                // 나머지 대기 중인 토큰들의 위치 재계산
-                updateWaitingQueuePositions(performance);
-            }
-        }
-    }
-
-    /**
-     * 대기열 토큰 발급 (중복 토큰 처리 강화)
+     * 대기열 토큰 발급 - Redis 기반
      */
     public TokenIssueResponse issueQueueToken(Long userId, Long performanceId) {
         User user = userRepository.findById(userId)
@@ -418,7 +128,7 @@ public class QueueService {
         Performance performance = performanceRepository.findById(performanceId)
                 .orElseThrow(() -> new IllegalArgumentException("공연을 찾을 수 없습니다"));
 
-        // 기존 활성 토큰 확인
+        // 기존 토큰 확인
         Optional<QueueToken> existingToken = queueTokenRepository
                 .findActiveTokenByUserAndPerformance(user, performance);
 
@@ -426,113 +136,57 @@ public class QueueService {
             QueueToken token = existingToken.get();
             if (!token.isExpired()) {
                 updateQueuePosition(token);
+                log.info("기존 토큰 반환: {}", token.getToken());
                 return createTokenResponse(token, "기존 토큰을 반환합니다.");
             } else {
-                // 만료된 토큰은 상태 업데이트
                 token.markAsExpired();
                 queueTokenRepository.save(token);
             }
         }
-        // 현재 활성 세션 수 확인 후 즉시 활성화 가능한지 체크
-        Long waitingCount = queueTokenRepository.countWaitingTokensByPerformance(performance);
-        Long currentActiveSessions = queueTokenRepository.countActiveTokensByPerformance(performance);
-        int maxConcurrentSessions = getMaxConcurrentSessions();
 
-
-        // 새 토큰 생성 (기본적으로 WAITING 상태)
+        // 새 토큰 생성
         String tokenString = generateToken();
-
         QueueToken newToken = QueueToken.builder()
                 .token(tokenString)
                 .user(user)
                 .performance(performance)
-                .status(QueueToken.TokenStatus.WAITING) // 기본은 WAITING
+                .status(QueueToken.TokenStatus.WAITING)
                 .issuedAt(LocalDateTime.now())
                 .expiresAt(LocalDateTime.now().plusHours(2))
                 .build();
 
-        // DB에 저장
         QueueToken savedToken = queueTokenRepository.save(newToken);
-        // 대기열 위치 계산
         updateQueuePosition(savedToken);
 
-        String message;
+        // Redis에서 즉시 활성화 가능한지 확인
+        String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
+        String activeTokensStr = redisTemplate.opsForValue().get(activeTokensKey);
+        int currentActive = activeTokensStr != null ? Integer.parseInt(activeTokensStr) : 0;
 
-        if (waitingCount == 0 && currentActiveSessions < maxConcurrentSessions) {
-            // 대기자가 없고 여유가 있으면 즉시 활성화
+        log.info("토큰 발급 후 활성화 체크 - 현재 활성: {}/{}", currentActive, maxActiveTokens);
+
+        if (currentActive < maxActiveTokens) {
+            // Redis에서 활성 토큰 수 증가
+            redisTemplate.opsForValue().increment(activeTokensKey);
+            redisTemplate.expire(activeTokensKey, Duration.ofMinutes(10));
+
+            // DB에서 토큰 활성화
             savedToken.activate();
             savedToken.setPositionInQueue(0);
             savedToken.setEstimatedWaitTimeMinutes(0);
             savedToken = queueTokenRepository.save(savedToken);
-            message = "예매 세션이 활성화되었습니다.";
-            log.info("대기자 없음 - 토큰 즉시 활성화: {}", savedToken.getToken());
-        } else {
-            // 대기자가 있거나 여유가 없으면 대기열에 추가
-            message = "대기열에 추가되었습니다. 순서를 기다려주세요.";
-            log.info("대기열 추가: {} (현재 대기자: {}, 활성 세션: {}/{})",
-                    savedToken.getToken(), waitingCount + 1, currentActiveSessions, maxConcurrentSessions);
+
+            log.info(">>> 즉시 활성화: {}", savedToken.getToken());
+            return createTokenResponse(savedToken, "예매 세션이 활성화되었습니다.");
         }
 
-        return createTokenResponse(savedToken, message);
-    }
-
-
-    /**
-     * 토큰 위치 정보 업데이트 (핵심 메서드)
-     */
-    private void updateTokenPosition(QueueToken token, Performance performance) {
-        if (token.getStatus() == QueueToken.TokenStatus.WAITING) {
-            // 현재 토큰보다 먼저 발급된 WAITING 토큰 개수로 위치 계산
-            Long position = queueTokenRepository.findPositionInQueue(
-                    performance, token.getIssuedAt());
-
-            int queuePosition = Math.max(1, position.intValue() + 1);
-            int estimatedMinutes = Math.max(60, queuePosition * 12);
-
-            token.setPositionInQueue(queuePosition);
-            token.setEstimatedWaitTimeMinutes(estimatedMinutes);
-
-            log.debug("개별 토큰 위치 업데이트: {} - 위치: {}, 발급시간: {}",
-                    token.getToken(), queuePosition, token.getIssuedAt());
-        } else if (token.getStatus() == QueueToken.TokenStatus.ACTIVE) {
-            token.setPositionInQueue(0);
-            token.setEstimatedWaitTimeMinutes(0);
-        }
-
-        queueTokenRepository.save(token);
+        log.info(">>> 대기열 추가: {}", savedToken.getToken());
+        return createTokenResponse(savedToken, "대기열에 추가되었습니다.");
     }
 
     /**
-     * 대기 중인 토큰들의 위치 정보 업데이트 (시간 순서 보장)
+     * 토큰 상태 조회
      */
-    private void updateWaitingQueuePositions(Performance performance) {
-        //  발급 시간 순서로 정렬하여 조회
-        List<QueueToken> waitingTokens = queueTokenRepository
-                .findWaitingTokensByPerformanceOrderByIssuedAt(performance);
-
-        for (int i = 0; i < waitingTokens.size(); i++) {
-            QueueToken token = waitingTokens.get(i);
-            int position = i + 1; // 발급 시간 순서대로 1, 2, 3...
-            int estimatedMinutes = Math.max(1, (int) Math.ceil(position * 0.2));
-
-            token.setPositionInQueue(position);
-            token.setEstimatedWaitTimeMinutes(estimatedMinutes);
-
-            log.debug("대기열 위치 업데이트: {} - 순서: {}, 예상대기: {}분, 발급시간: {}",
-                    token.getToken(), position, estimatedMinutes, token.getIssuedAt());
-        }
-
-        if (!waitingTokens.isEmpty()) {
-            queueTokenRepository.saveAll(waitingTokens);
-            log.info("대기열 위치 재정렬 완료 - 공연: {}, 대기자: {}명",
-                    performance.getTitle(), waitingTokens.size());
-        }
-    }
-
-    /**
-     * 토큰 상태 조회 (null 값 처리 강화)
-     */
-
     @Transactional(readOnly = true)
     public QueueStatusResponse getTokenStatus(String token) {
         QueueToken queueToken = queueTokenRepository.findByToken(token)
@@ -542,132 +196,355 @@ public class QueueService {
             queueToken.markAsExpired();
             queueTokenRepository.save(queueToken);
         } else if (queueToken.getStatus() == QueueToken.TokenStatus.WAITING) {
-            // WAITING 상태면 최신 위치 정보로 업데이트
-            updateTokenPosition(queueToken, queueToken.getPerformance());
+            updateQueuePosition(queueToken);
         }
 
-        // ⭐ null 체크 및 기본값 설정 강화
-        Integer position = queueToken.getPositionInQueue();
-        Integer waitTime = queueToken.getEstimatedWaitTimeMinutes();
-
-        // WAITING 상태일 때 null이면 기본값 설정
-        if (queueToken.getStatus() == QueueToken.TokenStatus.WAITING) {
-            if (position == null || position <= 0) {
-                // 실시간으로 위치 계산
-                Long calculatedPosition = queueTokenRepository.findPositionInQueue(
-                        queueToken.getPerformance(), queueToken.getIssuedAt());
-                position = Math.max(1, calculatedPosition.intValue() + 1);
-            }
-
-            if (waitTime == null || waitTime <= 0) {
-                // 위치 기반으로 예상 시간 계산
-                waitTime = Math.max(60, position * 12); // 최소 1분, 1명당 12초
-            }
-
-            // ⭐ 계산된 값을 DB에 저장
-            queueToken.setPositionInQueue(position);
-            queueToken.setEstimatedWaitTimeMinutes(waitTime);
-            queueTokenRepository.save(queueToken);
-
-        } else if (queueToken.getStatus() == QueueToken.TokenStatus.ACTIVE) {
-            // ACTIVE 상태는 0으로 설정
-            position = 0;
-            waitTime = 0;
-        } else {
-            // 기타 상태도 안전한 기본값
-            position = position != null ? position : 1;
-            waitTime = waitTime != null ? waitTime : 60;
-        }
+        Integer position = queueToken.getPositionInQueue() != null ? queueToken.getPositionInQueue() : 1;
+        Integer waitTime = queueToken.getEstimatedWaitTimeMinutes() != null ?
+                queueToken.getEstimatedWaitTimeMinutes() : position * waitTimePerPerson / 60;
 
         return QueueStatusResponse.builder()
                 .token(queueToken.getToken())
                 .status(queueToken.getStatus())
-                .positionInQueue(position)  // 실제 값 사용
-                .estimatedWaitTime(waitTime)  // 실제 값 사용
+                .positionInQueue(position)
+                .estimatedWaitTime(waitTime)
                 .isActiveForBooking(queueToken.isActiveForBooking())
                 .bookingExpiresAt(queueToken.getBookingExpiresAt())
                 .build();
     }
 
-
     /**
-     * 토큰 검증 (예매 시 호출)
+     * 토큰 검증 - 만료 시 Redis 동기화
      */
-    @Transactional //  readOnly = true 제거 (만료 처리 때문에)
+    @Transactional
     public boolean validateTokenForBooking(String token, Long userId) {
         if (token == null || token.trim().isEmpty()) {
-            log.debug("토큰이 null이거나 빈 문자열입니다");
             return false;
         }
 
         Optional<QueueToken> optionalToken = queueTokenRepository.findByToken(token);
         if (optionalToken.isEmpty()) {
-            log.debug("토큰을 찾을 수 없습니다: {}", token);
             return false;
         }
 
         QueueToken queueToken = optionalToken.get();
 
-        //  토큰 만료 확인 및 처리 (다른 메서드들과 일관성)
         if (queueToken.isExpired()) {
-            log.info("만료된 토큰 처리: {}", token);
             queueToken.markAsExpired();
             queueTokenRepository.save(queueToken);
 
-            // 다음 대기자 활성화
-            activateNextTokens(queueToken.getPerformance());
+            // Redis에서도 활성 토큰 수 감소
+            if (queueToken.getStatus() == QueueToken.TokenStatus.ACTIVE) {
+                releaseTokenFromRedis(queueToken.getPerformance().getPerformanceId());
+                activateNextTokens(queueToken.getPerformance());
+            }
+
             return false;
         }
 
-        // 토큰 소유자 확인
         if (!queueToken.getUser().getUserId().equals(userId)) {
-            log.warn("토큰 소유자 불일치 - 토큰: {}, 요청사용자: {}, 토큰소유자: {}",
-                    token, userId, queueToken.getUser().getUserId());
             return false;
         }
 
-        //  토큰 상태 확인 (더 상세한 로깅)
-        boolean isActive = queueToken.isActiveForBooking();
-        if (!isActive) {
-            log.debug("토큰이 예매 가능 상태가 아닙니다 - 토큰: {}, 상태: {}, bookingExpiresAt: {}",
-                    token, queueToken.getStatus(), queueToken.getBookingExpiresAt());
-        }
-
-        return isActive;
+        return queueToken.isActiveForBooking();
     }
 
     /**
-     * 대기열 처리 (스케줄러에서 호출) 30초 주기
+     * 토큰 사용 완료 - Redis와 DB 동기화
      */
-    public void processQueue() {
-        LocalDateTime now = LocalDateTime.now();
+    public void useToken(String token) {
+        QueueToken queueToken = queueTokenRepository.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("토큰을 찾을 수 없습니다"));
 
-        // 만료된 토큰들 처리
-        List<QueueToken> expiredTokens = queueTokenRepository.findExpiredTokens(now);
-        for (QueueToken token : expiredTokens) {
-            token.markAsExpired();
-            log.info("토큰 만료 처리: {}", token.getToken());
+        if (!queueToken.isActiveForBooking()) {
+            throw new IllegalStateException("예매 가능한 상태가 아닙니다");
         }
-        queueTokenRepository.saveAll(expiredTokens);
 
-        // 각 공연별로 대기열 처리
-        List<Performance> performances = performanceRepository.findAll();
-        for (Performance performance : performances) {
-            activateNextTokens(performance);
-            updateWaitingQueuePositions(performance);
-        }
+        // DB에서 토큰 사용 완료 처리
+        queueToken.markAsUsed();
+        queueTokenRepository.save(queueToken);
+
+        // Redis에서 활성 토큰 수 감소
+        releaseTokenFromRedis(queueToken.getPerformance().getPerformanceId());
+
+        log.info(">>> 토큰 사용 완료: {}", token);
+
+        // 다음 대기자 활성화
+        activateNextTokens(queueToken.getPerformance());
     }
 
     /**
-     * 사용자의 모든 활성 토큰 조회
+     * 세션 해제 - Redis와 DB 동기화
      */
+    public void releaseSession(Long userId, Long performanceId, Long scheduleId) {
+        String sessionKey = SESSION_KEY_PREFIX + performanceId + ":" + scheduleId;
+        String heartbeatKey = HEARTBEAT_KEY_PREFIX + userId + ":" + performanceId + ":" + scheduleId;
+
+        log.info("=== 세션 해제 시작 ===");
+        log.info("사용자: {}, 공연: {}", userId, performanceId);
+
+        // 1. 세션 카운트 감소
+        Long currentCount = redisTemplate.opsForValue().decrement(sessionKey);
+        if (currentCount < 0) {
+            redisTemplate.opsForValue().set(sessionKey, "0");
+        }
+
+        // 2. heartbeat 제거
+        redisTemplate.delete(heartbeatKey);
+
+        // 3. **핵심**: DB에서 해당 사용자의 활성 토큰을 만료 처리
+        try {
+            User user = userRepository.findById(userId).orElse(null);
+            Performance performance = performanceRepository.findById(performanceId).orElse(null);
+
+            if (user != null && performance != null) {
+                Optional<QueueToken> activeToken = queueTokenRepository
+                        .findActiveTokenByUserAndPerformance(user, performance);
+
+                if (activeToken.isPresent() &&
+                        activeToken.get().getStatus() == QueueToken.TokenStatus.ACTIVE) {
+
+                    QueueToken token = activeToken.get();
+
+                    // DB에서 토큰 만료 처리
+                    token.markAsExpired();
+                    queueTokenRepository.save(token);
+
+                    // Redis에서 활성 토큰 수 감소
+                    releaseTokenFromRedis(performanceId);
+
+                    log.info(">>> DB 토큰 만료 처리: {}", token.getToken());
+
+                    // 즉시 다음 대기자 활성화
+                    activateNextTokens(performance);
+                } else {
+                    log.info(">>> 해당 사용자의 활성 토큰 없음");
+                }
+            }
+        } catch (Exception e) {
+            log.error("토큰 만료 처리 중 오류", e);
+        }
+
+        log.info(">>> 세션 해제 완료 - 현재 세션: {}", currentCount);
+    }
+
+    /**
+     * Redis에서 활성 토큰 수 감소
+     */
+    private void releaseTokenFromRedis(Long performanceId) {
+        String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
+        Long activeCount = redisTemplate.opsForValue().decrement(activeTokensKey);
+        if (activeCount < 0) {
+            redisTemplate.opsForValue().set(activeTokensKey, "0");
+        }
+        log.info("Redis 활성 토큰 수 감소: {}", activeCount);
+    }
+
+    /**
+     * 다음 대기자 활성화 - Redis 기반
+     */
+    private void activateNextTokens(Performance performance) {
+        String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performance.getPerformanceId();
+        String activeTokensStr = redisTemplate.opsForValue().get(activeTokensKey);
+        int currentActive = activeTokensStr != null ? Integer.parseInt(activeTokensStr) : 0;
+
+        log.info("=== 다음 대기자 활성화 체크 ===");
+        log.info("공연: {}, 현재 활성: {}/{}", performance.getTitle(), currentActive, maxActiveTokens);
+
+        if (currentActive < maxActiveTokens) {
+            int tokensToActivate = maxActiveTokens - currentActive;
+            List<QueueToken> waitingTokens = queueTokenRepository.findTokensToActivate(performance);
+
+            log.info("활성화 가능한 슬롯: {}, 대기중인 토큰: {}개", tokensToActivate, waitingTokens.size());
+
+            List<QueueToken> tokensToUpdate = waitingTokens.stream()
+                    .limit(tokensToActivate)
+                    .peek(token -> {
+                        // Redis에서 활성 토큰 수 증가
+                        redisTemplate.opsForValue().increment(activeTokensKey);
+                        redisTemplate.expire(activeTokensKey, Duration.ofMinutes(10));
+
+                        // DB에서 토큰 활성화
+                        token.activate();
+                        token.setPositionInQueue(0);
+                        token.setEstimatedWaitTimeMinutes(0);
+                        log.info(">>> 토큰 활성화: {}", token.getToken());
+                    })
+                    .toList();
+
+            if (!tokensToUpdate.isEmpty()) {
+                queueTokenRepository.saveAll(tokensToUpdate);
+                // 나머지 대기자 위치 재계산
+                updateWaitingPositions(performance);
+            }
+        }
+    }
+
+    // ========== Helper Methods ==========
+
+    /**
+     * Redis에서 대기자 수 조회
+     */
+    private int getRedisWaitingCount(Long performanceId) {
+        Performance performance = performanceRepository.findById(performanceId).orElse(null);
+        return performance != null ? queueTokenRepository.countWaitingTokensByPerformance(performance).intValue() : 0;
+    }
+
+    private void startHeartbeat(Long userId, Long performanceId, Long scheduleId) {
+        String heartbeatKey = HEARTBEAT_KEY_PREFIX + userId + ":" + performanceId + ":" + scheduleId;
+        redisTemplate.opsForValue().set(heartbeatKey, LocalDateTime.now().toString(),
+                Duration.ofSeconds(maxInactiveSeconds));
+        log.info("Heartbeat 시작: {}", heartbeatKey);
+    }
+
+    public void updateHeartbeat(Long userId, Long performanceId, Long scheduleId) {
+        String heartbeatKey = HEARTBEAT_KEY_PREFIX + userId + ":" + performanceId + ":" + scheduleId;
+        redisTemplate.opsForValue().set(heartbeatKey, LocalDateTime.now().toString(),
+                Duration.ofSeconds(maxInactiveSeconds));
+    }
+
+    public void cleanupInactiveSessions() {
+        try {
+            LocalDateTime cutoff = LocalDateTime.now().minusSeconds(maxInactiveSeconds);
+            Set<String> heartbeatKeys = redisTemplate.keys(HEARTBEAT_KEY_PREFIX + "*");
+
+            if (heartbeatKeys != null) {
+                for (String heartbeatKey : heartbeatKeys) {
+                    String lastHeartbeat = redisTemplate.opsForValue().get(heartbeatKey);
+                    if (lastHeartbeat != null) {
+                        LocalDateTime lastTime = LocalDateTime.parse(lastHeartbeat);
+                        if (lastTime.isBefore(cutoff)) {
+                            processTimeout(heartbeatKey);
+                        }
+                    }
+                }
+            }
+
+            // 만료된 토큰들 처리
+            List<QueueToken> expiredTokens = queueTokenRepository.findExpiredTokens(LocalDateTime.now());
+            for (QueueToken token : expiredTokens) {
+                if (token.getStatus() == QueueToken.TokenStatus.ACTIVE) {
+                    token.markAsExpired();
+                    releaseTokenFromRedis(token.getPerformance().getPerformanceId());
+                    activateNextTokens(token.getPerformance());
+                }
+            }
+            if (!expiredTokens.isEmpty()) {
+                queueTokenRepository.saveAll(expiredTokens);
+            }
+
+        } catch (Exception e) {
+            log.error("비활성 세션 정리 중 오류", e);
+        }
+    }
+
+    private void processTimeout(String heartbeatKey) {
+        try {
+            String[] parts = heartbeatKey.replace(HEARTBEAT_KEY_PREFIX, "").split(":");
+            if (parts.length >= 3) {
+                Long userId = Long.parseLong(parts[0]);
+                Long performanceId = Long.parseLong(parts[1]);
+                Long scheduleId = Long.parseLong(parts[2]);
+
+                log.warn("세션 타임아웃 - 사용자: {}", userId);
+                releaseSession(userId, performanceId, scheduleId);
+            }
+        } catch (Exception e) {
+            log.error("타임아웃 처리 중 오류", e);
+        }
+    }
+
+    private void updateWaitingPositions(Performance performance) {
+        List<QueueToken> waitingTokens = queueTokenRepository
+                .findWaitingTokensByPerformance(performance);
+
+        for (int i = 0; i < waitingTokens.size(); i++) {
+            QueueToken token = waitingTokens.get(i);
+            int position = i + 1;
+            int estimatedSeconds = position * waitTimePerPerson;
+            int estimatedMinutes = Math.max(1, estimatedSeconds / 60);
+
+            token.setPositionInQueue(position);
+            token.setEstimatedWaitTimeMinutes(estimatedMinutes);
+        }
+
+        if (!waitingTokens.isEmpty()) {
+            queueTokenRepository.saveAll(waitingTokens);
+        }
+    }
+
+    private void updateQueuePosition(QueueToken token) {
+        if (token.getStatus() == QueueToken.TokenStatus.WAITING) {
+            Long position = queueTokenRepository.findPositionInQueue(
+                    token.getPerformance(), token.getIssuedAt()) + 1;
+            int estimatedSeconds = position.intValue() * waitTimePerPerson;
+            int estimatedMinutes = Math.max(1, estimatedSeconds / 60);
+
+            token.setPositionInQueue(position.intValue());
+            token.setEstimatedWaitTimeMinutes(estimatedMinutes);
+            queueTokenRepository.save(token);
+        }
+    }
+
+    private String generateToken() {
+        byte[] bytes = new byte[16];
+        secureRandom.nextBytes(bytes);
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private TokenIssueResponse createTokenResponse(QueueToken token, String message) {
+        Integer position = token.getPositionInQueue() != null ? token.getPositionInQueue() : 1;
+        Integer waitTime = token.getEstimatedWaitTimeMinutes() != null ?
+                token.getEstimatedWaitTimeMinutes() : position * waitTimePerPerson / 60;
+
+        return TokenIssueResponse.builder()
+                .token(token.getToken())
+                .status(token.getStatus())
+                .positionInQueue(position)
+                .estimatedWaitTime(waitTime)
+                .message(message)
+                .expiresAt(token.getExpiresAt())
+                .bookingExpiresAt(token.getBookingExpiresAt())
+                .build();
+    }
+
+    // ========== API Methods (기존 호환성) ==========
+
+    @Transactional(readOnly = true)
+    public QueueToken getTokenByString(String token) {
+        return queueTokenRepository.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("토큰을 찾을 수 없습니다: " + token));
+    }
+
+    public void cancelToken(String token, Long userId) {
+        QueueToken queueToken = queueTokenRepository.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("토큰을 찾을 수 없습니다"));
+
+        if (!queueToken.getUser().getUserId().equals(userId)) {
+            throw new IllegalArgumentException("토큰을 취소할 권한이 없습니다");
+        }
+
+        queueToken.setStatus(QueueToken.TokenStatus.CANCELLED);
+        queueTokenRepository.save(queueToken);
+
+        // 활성 상태였다면 Redis에서도 해제
+        if (queueToken.getStatus() == QueueToken.TokenStatus.ACTIVE) {
+            releaseTokenFromRedis(queueToken.getPerformance().getPerformanceId());
+        }
+
+        activateNextTokens(queueToken.getPerformance());
+    }
+
     @Transactional(readOnly = true)
     public List<QueueStatusResponse> getUserActiveTokens(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
 
         List<QueueToken> tokens = queueTokenRepository.findActiveTokensByUser(user);
-
         return tokens.stream()
                 .map(token -> QueueStatusResponse.builder()
                         .token(token.getToken())
@@ -681,155 +558,88 @@ public class QueueService {
                 .toList();
     }
 
-    public void cancelToken(String token, Long userId) {
-        QueueToken queueToken = queueTokenRepository.findByToken(token)
-                .orElseThrow(() -> new IllegalArgumentException("토큰을 찾을 수 없습니다"));
+    public void clearAllSessions() {
+        try {
+            Set<String> sessionKeys = redisTemplate.keys(SESSION_KEY_PREFIX + "*");
+            Set<String> heartbeatKeys = redisTemplate.keys(HEARTBEAT_KEY_PREFIX + "*");
+            Set<String> activeTokenKeys = redisTemplate.keys(ACTIVE_TOKENS_KEY_PREFIX + "*");
 
-        // 토큰 소유자 확인
-        if (!queueToken.getUser().getUserId().equals(userId)) {
-            throw new IllegalArgumentException("토큰을 취소할 권한이 없습니다");
+            if (sessionKeys != null && !sessionKeys.isEmpty()) {
+                redisTemplate.delete(sessionKeys);
+            }
+            if (heartbeatKeys != null && !heartbeatKeys.isEmpty()) {
+                redisTemplate.delete(heartbeatKeys);
+            }
+            if (activeTokenKeys != null && !activeTokenKeys.isEmpty()) {
+                redisTemplate.delete(activeTokenKeys);
+            }
+            log.info("모든 세션 초기화 완료");
+        } catch (Exception e) {
+            log.error("세션 초기화 중 오류", e);
         }
-
-        // 이미 사용된 토큰은 취소 불가
-        if (queueToken.getStatus() == QueueToken.TokenStatus.USED) {
-            throw new IllegalStateException("이미 사용된 토큰은 취소할 수 없습니다");
-        }
-
-        queueToken.setStatus(QueueToken.TokenStatus.CANCELLED);
-        queueTokenRepository.save(queueToken);
-
-        log.info("토큰 취소: {} (사용자: {})", token, userId);
-
-        // 다음 대기자 활성화
-        activateNextTokens(queueToken.getPerformance());
     }
 
-    /**
-     * 오래된 사용 완료 토큰 정리 (7일 이상 된 것)
-     */
     public void cleanupOldTokens() {
-        LocalDateTime cutoffTime = LocalDateTime.now().minusDays(7);
+        LocalDateTime cutoffTime = LocalDateTime.now().minusDays(1);
         List<QueueToken> oldTokens = queueTokenRepository.findOldUsedTokens(cutoffTime);
-
         if (!oldTokens.isEmpty()) {
             queueTokenRepository.deleteAll(oldTokens);
             log.info("오래된 토큰 {} 개 정리 완료", oldTokens.size());
         }
     }
 
-    /**
-     * 모든 세션 초기화 (테스트용)
-     */
-    public void clearAllSessions() {
+    // ========== 기존 호환성을 위한 스텁 메서드들 ==========
 
-        try {
-            // Redis에서 모든 세션 키 삭제
-            String sessionPattern = SESSION_KEY_PREFIX + "*";
-            Set<String> keys = redisTemplate.keys(sessionPattern);
-
-            if (keys != null && !keys.isEmpty()) {
-                redisTemplate.delete(keys);
-                log.info("세션 {} 개 초기화 완료", keys.size());
-            } else {
-                log.info("초기화할 세션이 없습니다");
-            }
-
-            // 락 키도 초기화
-            String lockPattern = LOCK_KEY_PREFIX + "*";
-            Set<String> lockKeys = redisTemplate.keys(lockPattern);
-
-            if (lockKeys != null && !lockKeys.isEmpty()) {
-                redisTemplate.delete(lockKeys);
-                log.info("락 {} 개 초기화 완료", lockKeys.size());
-            }
-
-        } catch (Exception e) {
-            log.error("세션 초기화 중 오류 발생: {}", e.getMessage(), e);
-            throw new RuntimeException("세션 초기화 실패", e);
-        }
+    public void processQueue() {
+        cleanupInactiveSessions();
     }
 
+    @Transactional(readOnly = true)
+    public List<QueueStatsResponse> getQueueStatsByPerformance() {
+        List<Performance> performances = performanceRepository.findAll();
 
-
-
-
-    // === Private Helper Methods ===
-
-    private String generateToken() {
-        byte[] bytes = new byte[32];
-        secureRandom.nextBytes(bytes);
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
+        return performances.stream()
+                .map(this::createQueueStats)
+                .filter(stats -> stats.getWaitingCount() > 0 || stats.getActiveCount() > 0)
+                .toList();
     }
 
-    /**
-     * 토큰 응답 생성 (null 방지)
-     */
-    private TokenIssueResponse createTokenResponse(QueueToken token, String message) {
-        Integer position = token.getPositionInQueue() != null ? token.getPositionInQueue() :
-                (token.getStatus() == QueueToken.TokenStatus.WAITING ? 1 : 0);
-        Integer waitTime = token.getEstimatedWaitTimeMinutes() != null ? token.getEstimatedWaitTimeMinutes() :
-                (token.getStatus() == QueueToken.TokenStatus.WAITING ? 60 : 0);
+    public void forceProcessQueue(Long performanceId) {
+        Performance performance = performanceRepository.findById(performanceId)
+                .orElseThrow(() -> new IllegalArgumentException("공연을 찾을 수 없습니다"));
 
-        return TokenIssueResponse.builder()
-                .token(token.getToken())
-                .status(token.getStatus())
-                .positionInQueue(position)
-                .estimatedWaitTime(waitTime)
-                .message(message)
-                .expiresAt(token.getExpiresAt())
-                .bookingExpiresAt(token.getBookingExpiresAt())
+        activateNextTokens(performance);
+        updateWaitingPositions(performance);
+        log.info("공연 {} 대기열 강제 처리 완료", performance.getTitle());
+    }
+
+    private QueueStatsResponse createQueueStats(Performance performance) {
+        List<Object[]> stats = queueTokenRepository.getTokenStatsByPerformance(performance);
+
+        long waitingCount = 0, activeCount = 0, usedCount = 0, expiredCount = 0;
+
+        for (Object[] stat : stats) {
+            QueueToken.TokenStatus status = (QueueToken.TokenStatus) stat[0];
+            Long count = (Long) stat[1];
+
+            switch (status) {
+                case WAITING -> waitingCount = count;
+                case ACTIVE -> activeCount = count;
+                case USED -> usedCount = count;
+                case EXPIRED, CANCELLED -> expiredCount += count;
+            }
+        }
+
+        int avgWaitTime = waitingCount > 0 ? (int) (waitingCount * 2) : 0;
+
+        return QueueStatsResponse.builder()
+                .performanceId(performance.getPerformanceId())
+                .performanceTitle(performance.getTitle())
+                .waitingCount(waitingCount)
+                .activeCount(activeCount)
+                .usedCount(usedCount)
+                .expiredCount(expiredCount)
+                .averageWaitTimeMinutes(avgWaitTime)
                 .build();
     }
-
-    private void updateQueuePosition(QueueToken token) {
-        if (token.getStatus() == QueueToken.TokenStatus.WAITING) {
-            Long position = queueTokenRepository.findPositionInQueue(
-                    token.getPerformance(), token.getIssuedAt()) + 1;
-
-            // 예상 대기 시간 계산 (1분에 5명씩 처리 가정)
-            int estimatedMinutes = (int) (position * 0.2);
-
-            token.updateWaitInfo(position.intValue(), estimatedMinutes);
-            queueTokenRepository.save(token);
-        }
-    }
-
-    /**
-     * 토큰 문자열로 QueueToken 객체 조회 (BookingService에서 사용)
-     */
-    @Transactional(readOnly = true)
-    public QueueToken getTokenByString(String token) {
-        return queueTokenRepository.findByToken(token)
-                .orElseThrow(() -> new IllegalArgumentException("토큰을 찾을 수 없습니다: " + token));
-    }
-
-
-
-    /**
-     * 토큰 사용 처리 (예매 완료 시 호출) - 로깅 강화
-     */
-    public void useToken(String token) {
-        QueueToken queueToken = queueTokenRepository.findByToken(token)
-                .orElseThrow(() -> new IllegalArgumentException("토큰을 찾을 수 없습니다"));
-
-        if (!queueToken.isActiveForBooking()) {
-            log.warn("비활성 토큰 사용 시도 - 토큰: {}, 상태: {}", token, queueToken.getStatus());
-            throw new IllegalStateException("예매 가능한 상태가 아닙니다");
-        }
-
-        queueToken.markAsUsed();
-        queueTokenRepository.save(queueToken);
-
-        log.info("토큰 사용 완료 - 토큰: {}, 사용자: {}, 공연: {}",
-                token, queueToken.getUser().getUsername(), queueToken.getPerformance().getTitle());
-
-        // 다음 대기자 활성화
-        activateNextTokens(queueToken.getPerformance());
-    }
-
-
 }

@@ -29,10 +29,12 @@ public class SessionCleanupScheduler {
     /**
      * 1분마다 비활성 세션 정리
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 60000) // 1분
     public void cleanupInactiveSessions() {
         try {
+            log.debug("=== 비활성 세션 정리 시작 ===");
             queueService.cleanupInactiveSessions();
+            log.debug("=== 비활성 세션 정리 완료 ===");
         } catch (Exception e) {
             log.error("비활성 세션 정리 중 오류", e);
         }

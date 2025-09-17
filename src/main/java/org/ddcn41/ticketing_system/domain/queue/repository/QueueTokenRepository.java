@@ -21,48 +21,26 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     Optional<QueueToken> findByToken(String token);
 
     /**
-     * 사용자와 공연으로 활성 토큰 조회 (가장 최근 것 하나만)
-     * todo. 여러 개 공연일 경우 수정요함
-     * 기존 메서드에서 ORDER BY와 LIMIT 추가
+     * 사용자와 공연으로 활성 토큰 조회
      */
     @Query("SELECT qt FROM QueueToken qt WHERE qt.user = :user AND qt.performance = :performance " +
-            "AND qt.status IN ('WAITING', 'ACTIVE') ORDER BY qt.createdAt DESC LIMIT 1")
+            "AND qt.status IN ('WAITING', 'ACTIVE') ORDER BY qt.createdAt DESC")
     Optional<QueueToken> findActiveTokenByUserAndPerformance(@Param("user") User user,
                                                              @Param("performance") Performance performance);
 
     /**
-     * 사용자와 공연으로 모든 활성 토큰 조회 (중복 토큰 확인용)
-     */
-    @Query("SELECT qt FROM QueueToken qt WHERE qt.user = :user AND qt.performance = :performance " +
-            "AND qt.status IN ('WAITING', 'ACTIVE') ORDER BY qt.createdAt DESC")
-    List<QueueToken> findAllActiveTokensByUserAndPerformance(@Param("user") User user,
-                                                             @Param("performance") Performance performance);
-
-    /**
-     * 특정 공연의 대기열 순서 조회 (WAITING 상태만)
+     * 특정 공연의 대기열 순서 조회 (WAITING 상태만) - issuedAt 기준 정렬
      */
     @Query("SELECT qt FROM QueueToken qt WHERE qt.performance = :performance AND qt.status = 'WAITING' " +
             "ORDER BY qt.issuedAt ASC")
     List<QueueToken> findWaitingTokensByPerformance(@Param("performance") Performance performance);
 
     /**
-     * 특정 공연의 대기 중인 토큰들을 발급 시간 순서로 조회
+     * 특정 공연의 대기열에서 사용자의 순서 조회
      */
-    @Query("SELECT qt FROM QueueToken qt " +
-            "WHERE qt.performance = :performance " +
-            "AND qt.status = 'WAITING' " +
-            "ORDER BY qt.issuedAt ASC")
-    List<QueueToken> findWaitingTokensByPerformanceOrderByIssuedAt(@Param("performance") Performance performance);
-
-    /**
-     * 특정 시간 이전에 발급된 대기 중인 토큰 개수 (위치 계산용)
-     */
-    @Query("SELECT COUNT(qt) FROM QueueToken qt " +
-            "WHERE qt.performance = :performance " +
-            "AND qt.status = 'WAITING' " +
-            "AND qt.issuedAt < :issuedAt")
-    Long findPositionInQueue(@Param("performance") Performance performance,
-                             @Param("issuedAt") LocalDateTime issuedAt);
+    @Query("SELECT COUNT(qt) FROM QueueToken qt WHERE qt.performance = :performance " +
+            "AND qt.status = 'WAITING' AND qt.issuedAt < :issuedAt")
+    Long findPositionInQueue(@Param("performance") Performance performance, @Param("issuedAt") LocalDateTime issuedAt);
 
     /**
      * 활성화 가능한 토큰들 조회 (대기열에서 앞순서부터)
@@ -74,9 +52,7 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     /**
      * 만료된 토큰들 조회
      */
-    @Query("SELECT qt FROM QueueToken qt WHERE " +
-            "(qt.expiresAt < :now OR " +
-            "(qt.bookingExpiresAt IS NOT NULL AND qt.bookingExpiresAt < :now)) " +
+    @Query("SELECT qt FROM QueueToken qt WHERE (qt.expiresAt < :now OR qt.bookingExpiresAt < :now) " +
             "AND qt.status IN ('WAITING', 'ACTIVE')")
     List<QueueToken> findExpiredTokens(@Param("now") LocalDateTime now);
 
@@ -113,11 +89,16 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     List<QueueToken> findOldUsedTokens(@Param("beforeTime") LocalDateTime beforeTime);
 
     /**
-     *  비활성 토큰 조회 (cleanupInactiveSessions용)
+     * 비활성 토큰 조회 (cleanupInactiveSessions용)
      */
-    @Query("SELECT qt FROM QueueToken qt WHERE qt.updatedAt < :cutoff " +
-            "AND qt.status = 'ACTIVE' AND qt.bookingExpiresAt > CURRENT_TIMESTAMP")
+    @Query("SELECT qt FROM QueueToken qt WHERE qt.updatedAt < :cutoff AND qt.status = 'ACTIVE'")
     List<QueueToken> findTokensLastAccessedBefore(@Param("cutoff") LocalDateTime cutoff);
 
+    /**
+     * 특정 공연의 대기열 순서 조회 - issuedAt 기준으로 정렬된 버전
+     * (QueueService에서 사용하는 메서드명과 일치)
+     */
+    @Query("SELECT qt FROM QueueToken qt WHERE qt.performance = :performance AND qt.status = 'WAITING' " +
+            "ORDER BY qt.issuedAt ASC")
+    List<QueueToken> findWaitingTokensByPerformanceOrderByIssuedAt(@Param("performance") Performance performance);
 }
-
