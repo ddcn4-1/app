@@ -110,7 +110,11 @@ public class BookingService {
             scheduleSeatRepository.flush();
             // 좌석을 AVAILABLE -> LOCKED로 변경한 수만큼 가용 좌석 카운터 감소
             if (!requestedSeats.isEmpty()) {
-                scheduleRepository.decrementAvailableSeats(req.getScheduleId(), requestedSeats.size());
+                int affected = scheduleRepository.decrementAvailableSeats(req.getScheduleId(), requestedSeats.size());
+                if (affected == 0) {
+                    throw new ResponseStatusException(BAD_REQUEST, "잔여 좌석 수가 부족합니다. 다시 시도해주세요.");
+                }
+                scheduleRepository.refreshScheduleStatus(req.getScheduleId());
             }
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(BAD_REQUEST, "다른 사용자가 먼저 예약한 좌석이 있습니다. 다시 시도해주세요.");
