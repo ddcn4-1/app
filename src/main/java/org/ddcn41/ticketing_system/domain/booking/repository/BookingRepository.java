@@ -11,7 +11,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -40,12 +39,6 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     long countByUserAndStatus(User user, BookingStatus status);
 
     /**
-     * 만료된 PENDING 예약들 조회 (스케줄러용)
-     */
-    @Query("SELECT b FROM Booking b WHERE b.status = 'PENDING' AND b.expiresAt < :now")
-    List<Booking> findExpiredPendingBookings(@Param("now") LocalDateTime now);
-
-    /**
      * 특정 스케줄의 예약들 조회
      */
     @Query("SELECT b FROM Booking b WHERE b.schedule.scheduleId = :scheduleId")
@@ -56,17 +49,6 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
      */
     @Query("SELECT b FROM Booking b WHERE b.bookingNumber = :bookingNumber")
     Booking findByBookingNumber(@Param("bookingNumber") String bookingNumber);
-
-    /**
-     * 예약 확정용 - 필요한 연관 엔티티들을 모두 JOIN FETCH
-     */
-    @Query("SELECT b FROM Booking b " +
-           "JOIN FETCH b.user " +
-           "JOIN FETCH b.schedule " +
-           "JOIN FETCH b.bookingSeats bs " +
-           "JOIN FETCH bs.seat " +
-           "WHERE b.bookingId = :bookingId")
-    Booking findByIdWithSeats(@Param("bookingId") Long bookingId);
 
     /**
      * 특정 기간의 예약들 조회
