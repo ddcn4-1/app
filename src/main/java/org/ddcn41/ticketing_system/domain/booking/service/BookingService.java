@@ -50,6 +50,7 @@ public class BookingService {
     private final UserRepository userRepository;
 
     private final SeatService seatService;
+    private final BookingAuditService bookingAuditService;
 
     @Transactional(rollbackFor = Exception.class)
     public CreateBookingResponseDto createBooking(String username, CreateBookingRequestDto req) {
@@ -135,8 +136,7 @@ public class BookingService {
                 .schedule(schedule)
                 .seatCount(seats.size())
                 .totalAmount(total)
-                .status(BookingStatus.PENDING) // 결제 전 PENDING
-//                .expiresAt(lockResponse.getExpiresAt()) // 락 만료 시간 동일
+                .status(BookingStatus.CONFIRMED)
                 .build();
 
         Booking saved = bookingRepository.save(booking);
@@ -153,64 +153,15 @@ public class BookingService {
 
         saved.setBookingSeats(savedSeats);
 
+        // 좌석을 최종 예약 상태로 전환 (이미 LOCKED 상태까지 검증 및 카운터 반영 완료)
+        seats.forEach(seat -> seat.setStatus(ScheduleSeat.SeatStatus.BOOKED));
+        scheduleSeatRepository.saveAll(seats);
+
+        List<Long> seatIds = seats.stream().map(ScheduleSeat::getSeatId).collect(Collectors.toList());
+
+        bookingAuditService.logBookingCreated(user, saved, seatIds);
+
         return toCreateResponse(saved);
-    }
-
-    /**
-     * 예약 확정 (결제 완료 후 호출)
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void confirmBooking(Long bookingId) {
-        // JOIN FETCH로 연관 엔티티들을 한 번에 로딩
-        Booking booking = bookingRepository.findByIdWithSeats(bookingId);
-        if (booking == null) {
-            throw new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다");
-        }
-
-        if (booking.getStatus() != BookingStatus.PENDING) {
-            throw new ResponseStatusException(BAD_REQUEST, "확정할 수 없는 예약 상태입니다");
-        }
-
-        // 좌석 확정 (낙관적 락 사용)
-        List<ScheduleSeat> seats = booking.getBookingSeats().stream()
-                .map(bs -> bs.getSeat())
-                .collect(Collectors.toList());
-
-        // 좌석 확정 로직 (LOCKED 또는 AVAILABLE 상태에서 BOOKED로 변경 가능)
-        for (ScheduleSeat seat : seats) {
-            if (seat.getStatus() == ScheduleSeat.SeatStatus.BOOKED) {
-                throw new ResponseStatusException(BAD_REQUEST, 
-                    String.format("이미 예약된 좌석입니다. 좌석ID: %d", seat.getSeatId()));
-            }
-            
-            // LOCKED 또는 AVAILABLE 상태에서 BOOKED로 변경
-            if (seat.getStatus() != ScheduleSeat.SeatStatus.LOCKED && 
-                seat.getStatus() != ScheduleSeat.SeatStatus.AVAILABLE) {
-                throw new ResponseStatusException(BAD_REQUEST, 
-                    String.format("확정할 수 없는 좌석 상태입니다. 좌석ID: %d, 현재상태: %s", 
-                        seat.getSeatId(), seat.getStatus()));
-            }
-            
-            // 좌석 상태를 BOOKED로 변경
-            seat.setStatus(ScheduleSeat.SeatStatus.BOOKED);
-        }
-
-        try {
-            // 낙관적 락 검증을 커밋 전에 강제 수행 (flush 시 버전 충돌 발생 가능)
-            // NOTE: 커밋 시 자동 flush로도 충분하면 이 flush는 생략 가능
-            scheduleSeatRepository.flush();
-
-            // 예약 상태 변경 (가용 좌석 카운터는 LOCK 시점에 감소했으므로 추가 감소 없음)
-            booking.setStatus(BookingStatus.CONFIRMED);
-            // NOTE: booking은 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됩니다. 명시 저장이 필요 없으면 생략 가능
-            // bookingRepository.save(booking);
-        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
-            throw new ResponseStatusException(BAD_REQUEST, "좌석 상태가 변경되었습니다. 다시 시도해주세요.");
-        } catch (Exception e) {
-            // 모든 예외를 로깅하고 적절한 메시지 반환
-            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, 
-                "예약 확정 중 오류가 발생했습니다: " + e.getMessage(), e);
-        }
     }
 
     /**
@@ -351,7 +302,7 @@ public class BookingService {
      * 예약 취소
      */
     @Transactional(rollbackFor = Exception.class)
-    public CancelBooking200ResponseDto cancelBooking(Long bookingId, CancelBookingRequestDto req) {
+    public CancelBooking200ResponseDto cancelBooking(Long bookingId, CancelBookingRequestDto req, String actorUsername) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
 
@@ -383,38 +334,17 @@ public class BookingService {
         // bookingRepository.save(booking);
 
         // 확정된 예약이었다면 좌석 상태를 AVAILABLE로 되돌리는 cancelSeats에서 카운터 증가 처리 완료
-        return CancelBooking200ResponseDto.builder()
+        CancelBooking200ResponseDto response = CancelBooking200ResponseDto.builder()
                 .message("예매 취소 성공")
                 .bookingId(booking.getBookingId())
                 .status(BookingStatus.CANCELLED.name())
                 .cancelledAt(odt(booking.getCancelledAt()))
                 .refundAmount(booking.getTotalAmount() == null ? 0.0 : booking.getTotalAmount().doubleValue())
                 .build();
-    }
 
-    /**
-     * 예약 만료 처리 (스케줄러에서 호출)
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void expireBooking(Long bookingId) {
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "예매를 찾을 수 없습니다"));
+        bookingAuditService.logBookingCancelled(actorUsername, booking, req != null ? req.getReason() : null);
 
-        if (booking.getStatus() == BookingStatus.PENDING) {
-            // 좌석 락 해제 (SeatService에 위임)
-            List<Long> seatIds = booking.getBookingSeats().stream()
-                    .map(bs -> bs.getSeat().getSeatId())
-                    .collect(Collectors.toList());
-
-            seatService.releaseSeats(seatIds, booking.getUser().getUserId(), null);
-
-            // 예약 취소
-            booking.setStatus(BookingStatus.CANCELLED);
-            booking.setCancelledAt(java.time.LocalDateTime.now());
-            booking.setCancellationReason("결제 시간 만료");
-            // NOTE: 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됨. 명시 저장이 필요 없으면 생략 가능
-            // bookingRepository.save(booking);
-        }
+        return response;
     }
 
     /**
