@@ -403,6 +403,9 @@ public class QueueService {
                 Duration.ofSeconds(maxInactiveSeconds));
     }
 
+    /**
+     * 비활성 세션 정리 및 만료 토큰 처리
+     */
     public void cleanupInactiveSessions() {
         try {
             LocalDateTime cutoff = LocalDateTime.now().minusSeconds(maxInactiveSeconds);

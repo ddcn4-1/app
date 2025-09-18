@@ -3,7 +3,7 @@ package org.ddcn41.ticketing_system.domain.queue.config;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.ddcn41.ticketing_system.domain.queue.service.QueueService;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -29,7 +29,8 @@ public class SessionCleanupScheduler {
     /**
      * 1분마다 비활성 세션 정리
      */
-    @Scheduled(fixedRate = 60000) // 1분
+    @Value("${queue.max-inactive-seconds:120}")
+//    @Scheduled(fixedRate = 60000) // 1분
     public void cleanupInactiveSessions() {
         try {
             log.debug("=== 비활성 세션 정리 시작 ===");
