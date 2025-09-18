@@ -148,8 +148,16 @@ public class BookingService {
 
         Booking saved = bookingRepository.save(booking);
 
-        //  예매 완료 시 토큰 사용 처리 추가
-        processQueueTokenUsage(req, username);
+        // 예매 완료 시 토큰 사용 처리
+        if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
+            try {
+                queueService.useToken(req.getQueueToken());
+                // log.info("토큰 사용 완료 - 사용자: {}, 토큰: {}", username, req.getQueueToken());
+            } catch (Exception e) {
+                // log.warn("토큰 사용 처리 중 오류 발생: {}", e.getMessage());
+                // 예매는 완료되었으므로 로그만 남기고 계속 진행
+            }
+        }
 
 
         // 예약 좌석 정보 생성 (좌석 상태 변경은 하지 않음)
@@ -168,7 +176,7 @@ public class BookingService {
     }
 
     /**
-     * 대기열 토큰 검증 (기존 로직에 영향 없이 추가)
+     * 대기열 토큰 검증
      */
     private void validateQueueTokenIfRequired(CreateBookingRequestDto req, User user) {
         if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
@@ -180,6 +188,17 @@ public class BookingService {
                         "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 권한이 없습니다. 대기열을 통해 다시 시도해주세요.");
             }
 
+            // 토큰 유효성 재확인 (동시성 이슈 대응)
+            try {
+                if (!queueService.isTokenActiveForBooking(req.getQueueToken())) {
+                    throw new ResponseStatusException(BAD_REQUEST,
+                            "토큰이 예매 가능한 상태가 아닙니다. 시간이 만료되었을 수 있습니다.");
+                }
+            } catch (Exception e) {
+                log.warn("토큰 검증 중 오류 발생: {}", e.getMessage());
+                throw new ResponseStatusException(BAD_REQUEST,
+                        "토큰 검증 중 오류가 발생했습니다. 다시 시도해주세요.");
+            }
         } else {
             // 토큰이 없는 경우 - 공연별 정책에 따라 처리
             // 옵션 1: 항상 토큰 필요
@@ -191,21 +210,6 @@ public class BookingService {
             //     throw new ResponseStatusException(BAD_REQUEST,
             //         "인기 공연은 대기열 토큰이 필요합니다.");
             // }
-        }
-    }
-
-    /**
-     * 토큰 사용 처리 (기존 로직에 영향 없이 추가)
-     */
-    private void processQueueTokenUsage(CreateBookingRequestDto req, String username) {
-        if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
-            try {
-                queueService.useToken(req.getQueueToken());
-                log.info("토큰 사용 완료 - 사용자: {}, 토큰: {}", username, req.getQueueToken());
-            } catch (Exception e) {
-                log.warn("토큰 사용 처리 중 오류 발생: {}", e.getMessage());
-                // 예매는 완료되었으므로 로그만 남기고 계속 진행
-            }
         }
     }
 

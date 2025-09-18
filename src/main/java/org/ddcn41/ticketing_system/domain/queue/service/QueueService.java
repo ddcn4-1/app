@@ -401,6 +401,27 @@ public class QueueService {
         }
     }
 
+    /**
+     * 토큰이 예매 가능한 상태인지 확인 (BookingService에서 사용)
+     */
+    @Transactional(readOnly = true)
+    public boolean isTokenActiveForBooking(String token) {
+        try {
+            QueueToken queueToken = queueTokenRepository.findByToken(token)
+                    .orElse(null);
+
+            if (queueToken == null) {
+                return false;
+            }
+
+            return queueToken.isActiveForBooking();
+        } catch (Exception e) {
+            log.warn("토큰 상태 확인 중 오류 발생: {}", e.getMessage());
+            return false;
+        }
+    }
+
+
     // ========== Helper Methods ==========
 
     /**
