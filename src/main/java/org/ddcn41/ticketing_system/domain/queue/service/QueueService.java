@@ -284,7 +284,7 @@ public class QueueService {
         log.info("=== 세션 해제 시작 ===");
         log.info("사용자: {}, 공연: {}", userId, performanceId);
 
-        // 1. ⭐ 반드시 heartbeat 제거 (메모리 누수 및 중복 정리 방지)
+        // 1. 반드시 heartbeat 제거 (메모리 누수 및 중복 정리 방지)
         boolean heartbeatExisted = redisTemplate.delete(heartbeatKey);
         log.info("Heartbeat 제거: {} (존재했음: {})", heartbeatKey, heartbeatExisted);
 
