@@ -214,35 +214,66 @@ public class QueueService {
     }
 
     /**
-     * 토큰 검증 - 만료 시 Redis 동기화
+     * 토큰 검증 - 사용자 ID와 공연 ID 모두 검증
      */
+    // 이 메서드는 그대로 두되, @Deprecated 추가하고 내용만 수정
+    @Deprecated
     @Transactional
     public boolean validateTokenForBooking(String token, Long userId) {
+        log.warn("Deprecated method called - 공연 ID 없는 구버전 호출");
+
+        // 기존 내용을 모두 지우고, 아래 내용으로 교체
+        try {
+            QueueToken queueToken = queueTokenRepository.findByToken(token).orElse(null);
+            if (queueToken == null) return false;
+
+            // 새로운 3-parameter 메서드 호출
+            return validateTokenForBooking(token, userId, queueToken.getPerformance().getPerformanceId());
+        } catch (Exception e) {
+            log.error("토큰 검증 중 오류", e);
+            return false;
+        }
+    }
+
+    @Transactional
+    public boolean validateTokenForBooking(String token, Long userId, Long performanceId) {
         if (token == null || token.trim().isEmpty()) {
             return false;
         }
 
         Optional<QueueToken> optionalToken = queueTokenRepository.findByToken(token);
         if (optionalToken.isEmpty()) {
+            log.warn("토큰을 찾을 수 없음: {}", token);
             return false;
         }
 
         QueueToken queueToken = optionalToken.get();
 
+        // 토큰 만료 확인
         if (queueToken.isExpired()) {
             queueToken.markAsExpired();
             queueTokenRepository.save(queueToken);
 
-            // Redis에서도 활성 토큰 수 감소
             if (queueToken.getStatus() == QueueToken.TokenStatus.ACTIVE) {
                 releaseTokenFromRedis(queueToken.getPerformance().getPerformanceId());
                 activateNextTokens(queueToken.getPerformance());
             }
 
+            log.warn("만료된 토큰: {}", token);
             return false;
         }
 
+        // 사용자 ID 검증
         if (!queueToken.getUser().getUserId().equals(userId)) {
+            log.warn("토큰 소유자 불일치 - 토큰: {}, 요청 사용자: {}, 토큰 소유자: {}",
+                    token, userId, queueToken.getUser().getUserId());
+            return false;
+        }
+
+        // ✅ 새로 추가된 공연 ID 검증 - 핵심 보안 수정!
+        if (!queueToken.getPerformance().getPerformanceId().equals(performanceId)) {
+            log.warn("토큰-공연 불일치 - 토큰 공연: {}, 요청 공연: {}",
+                    queueToken.getPerformance().getPerformanceId(), performanceId);
             return false;
         }
 

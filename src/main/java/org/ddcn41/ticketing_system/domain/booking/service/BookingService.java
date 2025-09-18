@@ -67,7 +67,7 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
 
         // 대기열 토큰 검증 추가 (기존 seat_map_json 로직 이전에)
-        validateQueueTokenIfRequired(req, user);
+        validateQueueTokenIfRequired(req, user, schedule);
 
 
         // seat_map_json 파싱 (검증/가격)
@@ -178,14 +178,20 @@ public class BookingService {
     /**
      * 대기열 토큰 검증
      */
-    private void validateQueueTokenIfRequired(CreateBookingRequestDto req, User user) {
+    /**
+     * 대기열 토큰 검증 - schedule 파라미터 추가
+     */
+    private void validateQueueTokenIfRequired(CreateBookingRequestDto req, User user, PerformanceSchedule schedule) {
         if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
             boolean isValidToken = queueService.validateTokenForBooking(
-                    req.getQueueToken(), user.getUserId());
+                    req.getQueueToken(),
+                    user.getUserId(),
+                    schedule.getPerformance().getPerformanceId()  // ✅ 이제 schedule 접근 가능!
+            );
 
             if (!isValidToken) {
                 throw new ResponseStatusException(BAD_REQUEST,
-                        "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 권한이 없습니다. 대기열을 통해 다시 시도해주세요.");
+                        "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 다른 공연의 토큰입니다. 대기열을 통해 다시 시도해주세요.");
             }
 
             // 토큰 유효성 재확인 (동시성 이슈 대응)
@@ -201,17 +207,11 @@ public class BookingService {
             }
         } else {
             // 토큰이 없는 경우 - 공연별 정책에 따라 처리
-            // 옵션 1: 항상 토큰 필요
             throw new ResponseStatusException(BAD_REQUEST,
                     "대기열 토큰이 필요합니다. 대기열에 참여해주세요.");
-
-            // 옵션 2: 특정 조건에서만 토큰 필요 (인기 공연) - 필요시 활성화
-            // if (isPopularPerformance(schedule.getPerformance())) {
-            //     throw new ResponseStatusException(BAD_REQUEST,
-            //         "인기 공연은 대기열 토큰이 필요합니다.");
-            // }
         }
     }
+
 
     /**
      * 예약 확정 (결제 완료 후 호출)

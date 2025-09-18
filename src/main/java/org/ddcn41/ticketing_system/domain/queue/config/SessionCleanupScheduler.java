@@ -29,8 +29,8 @@ public class SessionCleanupScheduler {
     /**
      * 1분마다 비활성 세션 정리
      */
-    @Value("${queue.max-inactive-seconds:120}")
 //    @Scheduled(fixedRate = 60000) // 1분
+    @Value("${queue.max-inactive-seconds:120}")
     public void cleanupInactiveSessions() {
         try {
             log.debug("=== 비활성 세션 정리 시작 ===");
