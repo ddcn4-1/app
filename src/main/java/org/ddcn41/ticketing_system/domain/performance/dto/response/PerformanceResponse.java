@@ -27,6 +27,7 @@ public class PerformanceResponse {
     private String endDate;
     private Integer runningTime;
     private String venueAddress;
+    private Long venueId;
     private List<ScheduleResponse> schedules;
 
     public static PerformanceResponse from(Performance performance) {
@@ -48,6 +49,7 @@ public class PerformanceResponse {
                 .endDate(performance.getEndDate().toString())
                 .runningTime(performance.getRunningTime())
                 .venueAddress(performance.getVenue().getAddress())
+                .venueId(performance.getVenue().getVenueId())
                 .schedules(scheduleResponses)
                 .description(performance.getDescription())
                 .build();
@@ -61,23 +63,16 @@ public class PerformanceResponse {
         private String showDatetime;
         private Integer availableSeats;
         private Integer totalSeats;
-        private String status;
+        private PerformanceSchedule.ScheduleStatus status;
 
         public static ScheduleResponse from(PerformanceSchedule schedule) {
-
-            String statusStr = switch (schedule.getStatus()) {
-                case OPEN -> "SCHEDULED";  // Active/bookable shows
-                case SOLDOUT -> "SCHEDULED";  // Still scheduled but no seats
-                case CLOSED -> "COMPLETED";  // Show has ended
-                default -> "SCHEDULED";
-            };
 
             return ScheduleResponse.builder()
                     .scheduleId(schedule.getScheduleId())
                     .showDatetime(schedule.getShowDatetime().toString())
                     .availableSeats(schedule.getAvailableSeats())
                     .totalSeats(schedule.getTotalSeats())
-                    .status(statusStr)
+                    .status(schedule.getStatus())
                     .build();
         }
     }

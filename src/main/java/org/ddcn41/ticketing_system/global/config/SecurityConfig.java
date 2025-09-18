@@ -3,6 +3,7 @@ package org.ddcn41.ticketing_system.global.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -84,10 +85,12 @@ public class SecurityConfig {
                         .requestMatchers("/admin/auth/**").hasRole("ADMIN")
                         .requestMatchers("/admin/api/**").hasRole("ADMIN")
                         
-                        .requestMatchers("/v1/admin/users/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/admin/users/**").hasAnyRole("ADMIN", "DEVOPS")
+                        
+                        // .requestMatchers("/v1/admin/schedules/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/admin/schedules/**").permitAll()  // 임시로 전체 허용 (개발/테스트용)
                         .requestMatchers("/v1/admin/bookings/**").permitAll()  // 임시로 전체 허용 (개발/테스트용)
                         // .requestMatchers("/v1/admin/bookings/**").hasRole("ADMIN")
-                        .requestMatchers("/v1/admin/users/**").hasAnyRole("ADMIN", "DEVOPS")
 
                         // 공연조회 API 허용
                         .requestMatchers("/v1/performances/**").permitAll()
@@ -100,8 +103,8 @@ public class SecurityConfig {
                         
                         // 좌석 조회 API 허용 (스케줄별 좌석 가용성 조회)
                         .requestMatchers("/api/v1/schedules/**").permitAll()
-                        // 테스트용 공연장 조회 API
-                        .requestMatchers("/api/venues").permitAll()
+                        // 공연장 조회/좌석맵 조회 API (GET만 허용)
+                        .requestMatchers(HttpMethod.GET, "/api/venues/**").permitAll()
 
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()

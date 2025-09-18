@@ -2,6 +2,7 @@ package org.ddcn41.ticketing_system.domain.seat.repository;
 
 import org.ddcn41.ticketing_system.domain.seat.entity.ScheduleSeat;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -87,4 +88,26 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
             "WHERE s.schedule.scheduleId IN :scheduleIds AND s.status = 'AVAILABLE' " +
             "GROUP BY s.schedule.scheduleId")
     List<Object[]> countAvailableSeatsByScheduleIds(@Param("scheduleIds") List<Long> scheduleIds);
+
+    /**
+     * 존재 여부 체크 (멱등 전개용)
+     */ 
+    boolean existsBySchedule_ScheduleIdAndZoneAndRowLabelAndColNum(Long scheduleId, String zone, String rowLabel, String colNum);
+
+    
+    /**
+     * 스케줄 좌석 총개수 카운트
+     */
+    long countBySchedule_ScheduleId(Long scheduleId);
+
+    /**
+     * 스케줄의 모든 좌석 삭제 (초기화용)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    int deleteBySchedule_ScheduleId(Long scheduleId);
+
+    /**
+     * 스케줄 + 좌표로 단일 좌석 조회
+     */
+    ScheduleSeat findBySchedule_ScheduleIdAndZoneAndRowLabelAndColNum(Long scheduleId, String zone, String rowLabel, String colNum);
 }

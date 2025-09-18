@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -22,10 +23,9 @@ public class BookingDto {
     private String performanceTitle; // from PerformanceSchedule.performance.title
     private String venueName; // from PerformanceSchedule.performance.venue.venueName
     private OffsetDateTime showDate; // from PerformanceSchedule.showDatetime
-    private String seatCode; // concatenated seat_row + seat_number
-    private String seatZone; // from seat.seatZone
     private Integer seatCount;
     private Double totalAmount;
+    private List<BookingSeatDto> seats;
 
     public enum StatusEnum { PENDING, CONFIRMED, CANCELLED }
     private StatusEnum status;
