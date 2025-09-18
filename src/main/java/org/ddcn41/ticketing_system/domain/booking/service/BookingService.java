@@ -27,10 +27,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.ddcn41.ticketing_system.domain.queue.service.QueueService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -43,6 +47,8 @@ import static org.springframework.http.HttpStatus.*;
 @RequiredArgsConstructor
 public class BookingService {
 
+    private static final Logger log = LoggerFactory.getLogger(BookingService.class);
+
     private final BookingRepository bookingRepository;
     private final BookingSeatRepository bookingSeatRepository;
     private final PerformanceScheduleRepository scheduleRepository;
@@ -50,6 +56,7 @@ public class BookingService {
     private final UserRepository userRepository;
 
     private final SeatService seatService;
+    private final QueueService queueService;
 
     @Transactional(rollbackFor = Exception.class)
     public CreateBookingResponseDto createBooking(String username, CreateBookingRequestDto req) {
@@ -58,6 +65,10 @@ public class BookingService {
 
         PerformanceSchedule schedule = scheduleRepository.findById(req.getScheduleId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
+
+        // 대기열 토큰 검증 추가 (기존 seat_map_json 로직 이전에)
+        validateQueueTokenIfRequired(req, user, schedule);
+
 
         // seat_map_json 파싱 (검증/가격)
         ObjectMapper om = new ObjectMapper();
@@ -137,6 +148,18 @@ public class BookingService {
 
         Booking saved = bookingRepository.save(booking);
 
+        // 예매 완료 시 토큰 사용 처리
+        if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
+            try {
+                queueService.useToken(req.getQueueToken());
+                // log.info("토큰 사용 완료 - 사용자: {}, 토큰: {}", username, req.getQueueToken());
+            } catch (Exception e) {
+                // log.warn("토큰 사용 처리 중 오류 발생: {}", e.getMessage());
+                // 예매는 완료되었으므로 로그만 남기고 계속 진행
+            }
+        }
+
+
         // 예약 좌석 정보 생성 (좌석 상태 변경은 하지 않음)
         List<BookingSeat> savedSeats = seats.stream()
                 .map(seat -> BookingSeat.builder()
@@ -151,6 +174,44 @@ public class BookingService {
 
         return toCreateResponse(saved);
     }
+
+    /**
+     * 대기열 토큰 검증
+     */
+    /**
+     * 대기열 토큰 검증 - schedule 파라미터 추가
+     */
+    private void validateQueueTokenIfRequired(CreateBookingRequestDto req, User user, PerformanceSchedule schedule) {
+        if (req.getQueueToken() != null && !req.getQueueToken().trim().isEmpty()) {
+            boolean isValidToken = queueService.validateTokenForBooking(
+                    req.getQueueToken(),
+                    user.getUserId(),
+                    schedule.getPerformance().getPerformanceId()  // ✅ 이제 schedule 접근 가능!
+            );
+
+            if (!isValidToken) {
+                throw new ResponseStatusException(BAD_REQUEST,
+                        "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 다른 공연의 토큰입니다. 대기열을 통해 다시 시도해주세요.");
+            }
+
+            // 토큰 유효성 재확인 (동시성 이슈 대응)
+            try {
+                if (!queueService.isTokenActiveForBooking(req.getQueueToken())) {
+                    throw new ResponseStatusException(BAD_REQUEST,
+                            "토큰이 예매 가능한 상태가 아닙니다. 시간이 만료되었을 수 있습니다.");
+                }
+            } catch (Exception e) {
+                log.warn("토큰 검증 중 오류 발생: {}", e.getMessage());
+                throw new ResponseStatusException(BAD_REQUEST,
+                        "토큰 검증 중 오류가 발생했습니다. 다시 시도해주세요.");
+            }
+        } else {
+            // 토큰이 없는 경우 - 공연별 정책에 따라 처리
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "대기열 토큰이 필요합니다. 대기열에 참여해주세요.");
+        }
+    }
+
 
     /**
      * 예약 확정 (결제 완료 후 호출)
@@ -192,14 +253,17 @@ public class BookingService {
         }
 
         try {
-            // 낙관적 락 검증을 커밋 전에 강제 수행 (flush 시 버전 충돌 발생 가능)
-            // NOTE: 커밋 시 자동 flush로도 충분하면 이 flush는 생략 가능
-            scheduleSeatRepository.flush();
-
-            // 예약 상태 변경 (가용 좌석 카운터는 LOCK 시점에 감소했으므로 추가 감소 없음)
+            // 낙관적 락으로 좌석 상태를 LOCKED에서 BOOKED로 변경
+            scheduleSeatRepository.saveAll(seats);
+            
+            // 예약 상태 변경
             booking.setStatus(BookingStatus.CONFIRMED);
-            // NOTE: booking은 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됩니다. 명시 저장이 필요 없으면 생략 가능
-            // bookingRepository.save(booking);
+            bookingRepository.save(booking);
+            
+            // performance_schedules의 available_seats 감소
+            PerformanceSchedule schedule = booking.getSchedule();
+            schedule.setAvailableSeats(schedule.getAvailableSeats() - booking.getSeatCount());
+            scheduleRepository.save(schedule);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
             throw new ResponseStatusException(BAD_REQUEST, "좌석 상태가 변경되었습니다. 다시 시도해주세요.");
         } catch (Exception e) {
@@ -258,52 +322,9 @@ public class BookingService {
             result = bookingRepository.findAllWithDetails(pr);
         }
 
-        // 동일 예약에 대해 좌석이 여러 행으로 반환될 수 있으므로 bookingId로 그룹화하여 좌석 코드를 누적
-        var grouped = new java.util.LinkedHashMap<Long, BookingDto>();
-        for (org.ddcn41.ticketing_system.domain.booking.dto.BookingProjection p : result.getContent()) {
-            BookingDto dto = grouped.get(p.getBookingId());
-            if (dto == null) {
-                dto = BookingDto.builder()
-                        .bookingId(p.getBookingId())
-                        .bookingNumber(p.getBookingNumber())
-                        .userId(p.getUserId())
-                        .userName(p.getUserName())
-                        .userPhone(p.getUserPhone())
-                        .scheduleId(p.getScheduleId())
-                        .performanceTitle(p.getPerformanceTitle())
-                        .venueName(p.getVenueName())
-                        .showDate(odt(p.getShowDatetime()))
-                        .seatCount(p.getSeatCount())
-                        .totalAmount(p.getTotalAmount() == null ? 0.0 : p.getTotalAmount().doubleValue())
-                        .status(p.getStatus() == null ? null : BookingDto.StatusEnum.valueOf(p.getStatus()))
-                        .expiresAt(odt(p.getExpiresAt()))
-                        .bookedAt(odt(p.getBookedAt()))
-                        .cancelledAt(odt(p.getCancelledAt()))
-                        .cancellationReason(p.getCancellationReason())
-                        .createdAt(odt(p.getCreatedAt()))
-                        .updatedAt(odt(p.getUpdatedAt()))
-                        .seats(new java.util.ArrayList<>())
-                        .build();
-                grouped.put(p.getBookingId(), dto);
-            }
-            // 좌석 상세 추가 (존재하는 행에 한해서)
-            if (p.getBookingSeatId() != null) {
-                BookingSeatDto seatDto = BookingSeatDto.builder()
-                        .bookingSeatId(p.getBookingSeatId())
-                        .bookingId(p.getBookingId())
-                        .seatId(null) // projection에 seatId 미포함 -> 필요시 추가
-                        .seatPrice(p.getSeatPrice() == null ? 0.0 : p.getSeatPrice().doubleValue())
-                        .grade(p.getSeatGrade())
-                        .zone(p.getSeatZone())
-                        .rowLabel(p.getSeatRowLabel())
-                        .colNum(p.getSeatColNum())
-                        .createdAt(null)
-                        .build();
-                dto.getSeats().add(seatDto);
-            }
-        }
-
-        List<BookingDto> items = new java.util.ArrayList<>(grouped.values());
+        List<BookingDto> items = result.getContent().stream()
+                .map(this::toListDtoFromProjection)
+                .collect(Collectors.toList());
 
         return GetBookings200ResponseDto.builder()
                 .bookings(items)
@@ -366,7 +387,8 @@ public class BookingService {
             throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 취소 실패");
         }
 
-        // available_seats 증감은 SeatService.cancelSeats 내부에서 BOOKED -> AVAILABLE 전이 시 처리됨
+        // performance_schedules의 available_seats 증가 (확정된 예약만)
+        boolean wasConfirmed = booking.getStatus() == BookingStatus.CONFIRMED;
         
         // 예약 상태 변경
         booking.setStatus(BookingStatus.CANCELLED);
@@ -375,10 +397,15 @@ public class BookingService {
             booking.setCancellationReason(req.getReason());
         }
 
-        // NOTE: 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됨. 명시 저장이 필요 없으면 생략 가능
-        // bookingRepository.save(booking);
+        bookingRepository.save(booking);
 
-        // 확정된 예약이었다면 좌석 상태를 AVAILABLE로 되돌리는 cancelSeats에서 카운터 증가 처리 완료
+        // 확정된 예약이었다면 available_seats 증가
+        if (wasConfirmed) {
+            PerformanceSchedule schedule = booking.getSchedule();
+            schedule.setAvailableSeats(schedule.getAvailableSeats() + booking.getSeatCount());
+            scheduleRepository.save(schedule);
+        }
+
         return CancelBooking200ResponseDto.builder()
                 .message("예매 취소 성공")
                 .bookingId(booking.getBookingId())
@@ -408,8 +435,7 @@ public class BookingService {
             booking.setStatus(BookingStatus.CANCELLED);
             booking.setCancelledAt(java.time.LocalDateTime.now());
             booking.setCancellationReason("결제 시간 만료");
-            // NOTE: 영속 엔티티이므로 변경감지로 커밋 시 자동 반영됨. 명시 저장이 필요 없으면 생략 가능
-            // bookingRepository.save(booking);
+            bookingRepository.save(booking);
         }
     }
 
@@ -453,6 +479,21 @@ public class BookingService {
      * BookingProjection을 BookingDto로 변환 (성능 최적화)
      */
     private BookingDto toListDtoFromProjection(org.ddcn41.ticketing_system.domain.booking.dto.BookingProjection p) {
+        List<BookingSeatDto> seatDtos = new ArrayList<>();
+        if (p.getBookingSeatId() != null) {
+            seatDtos.add(BookingSeatDto.builder()
+                    .bookingSeatId(p.getBookingSeatId())
+                    .bookingId(p.getBookingId())
+                    .seatId(null)
+                    .seatPrice(p.getSeatPrice() == null ? 0.0 : p.getSeatPrice().doubleValue())
+                    .grade(p.getSeatGrade())
+                    .zone(p.getSeatZone())
+                    .rowLabel(p.getSeatRowLabel())
+                    .colNum(p.getSeatColNum())
+                    .createdAt(null)
+                    .build());
+        }
+
         return BookingDto.builder()
                 .bookingId(p.getBookingId())
                 .bookingNumber(p.getBookingNumber())
@@ -465,6 +506,7 @@ public class BookingService {
                 .showDate(odt(p.getShowDatetime()))
                 .seatCount(p.getSeatCount())
                 .totalAmount(p.getTotalAmount() == null ? 0.0 : p.getTotalAmount().doubleValue())
+                .seats(seatDtos.isEmpty() ? List.of() : seatDtos)
                 .status(p.getStatus() == null ? null : BookingDto.StatusEnum.valueOf(p.getStatus()))
                 .expiresAt(odt(p.getExpiresAt()))
                 .bookedAt(odt(p.getBookedAt()))
@@ -472,7 +514,6 @@ public class BookingService {
                 .cancellationReason(p.getCancellationReason())
                 .createdAt(odt(p.getCreatedAt()))
                 .updatedAt(odt(p.getUpdatedAt()))
-                .seats(new java.util.ArrayList<>())
                 .build();
     }
 
@@ -492,15 +533,16 @@ public class BookingService {
     }
 
     private BookingSeatDto toSeatDto(BookingSeat bs) {
+        ScheduleSeat scheduleSeat = bs.getSeat();
         return BookingSeatDto.builder()
                 .bookingSeatId(bs.getBookingSeatId())
                 .bookingId(bs.getBooking() != null ? bs.getBooking().getBookingId() : null)
-                .seatId(bs.getSeat() != null ? bs.getSeat().getSeatId() : null)
+                .seatId(scheduleSeat != null ? scheduleSeat.getSeatId() : null)
                 .seatPrice(bs.getSeatPrice() == null ? 0.0 : bs.getSeatPrice().doubleValue())
-                .grade(bs.getSeat() != null ? bs.getSeat().getGrade() : null)
-                .zone(bs.getSeat() != null ? bs.getSeat().getZone() : null)
-                .rowLabel(bs.getSeat() != null ? bs.getSeat().getRowLabel() : null)
-                .colNum(bs.getSeat() != null ? bs.getSeat().getColNum() : null)
+                .grade(scheduleSeat != null ? scheduleSeat.getGrade() : null)
+                .zone(scheduleSeat != null ? scheduleSeat.getZone() : null)
+                .rowLabel(scheduleSeat != null ? scheduleSeat.getRowLabel() : null)
+                .colNum(scheduleSeat != null ? scheduleSeat.getColNum() : null)
                 .createdAt(odt(bs.getCreatedAt()))
                 .build();
     }
@@ -518,7 +560,7 @@ public class BookingService {
                 .showDate(b.getSchedule() != null ? odt(b.getSchedule().getShowDatetime()) : null)
                 .seatCount(b.getSeatCount())
                 .totalAmount(b.getTotalAmount() == null ? 0.0 : b.getTotalAmount().doubleValue())
-                .seats(b.getBookingSeats() == null ? java.util.List.of() : b.getBookingSeats().stream().map(this::toSeatDto).collect(java.util.stream.Collectors.toList()))
+                .seats(b.getBookingSeats() == null ? List.of() : b.getBookingSeats().stream().map(this::toSeatDto).collect(Collectors.toList()))
                 .status(b.getStatus() == null ? null : BookingDto.StatusEnum.valueOf(b.getStatus().name()))
                 .expiresAt(odt(b.getExpiresAt()))
                 .bookedAt(odt(b.getBookedAt()))
@@ -536,11 +578,15 @@ public class BookingService {
         if (b.getBookingSeats() != null && !b.getBookingSeats().isEmpty()) {
             var scheduleSeat = b.getBookingSeats().get(0).getSeat();
             if (scheduleSeat != null) {
-                seatCode = scheduleSeat.getRowLabel() + scheduleSeat.getColNum();
+                String rowLabel = scheduleSeat.getRowLabel();
+                String colNum = scheduleSeat.getColNum();
+                if (rowLabel != null && colNum != null) {
+                    seatCode = rowLabel + colNum;
+                }
                 seatZone = scheduleSeat.getZone();
             }
         }
-        
+
         return GetBookingDetail200ResponseDto.builder()
                 .bookingId(b.getBookingId())
                 .bookingNumber(b.getBookingNumber())
@@ -570,65 +616,121 @@ public class BookingService {
         return ldt == null ? null : ldt.atOffset(ZoneOffset.UTC);
     }
 
-    // === Private Helpers for seat-map validation and pricing ===
-    private static String safeUpper(String s) {
-        return s == null ? null : s.trim().toUpperCase();
+    private static String safeUpper(String value) {
+        return value == null ? null : value.trim().toUpperCase();
     }
 
-    private static BigDecimal priceByGrade(com.fasterxml.jackson.databind.JsonNode pricingNode, String grade) {
-        if (pricingNode != null && pricingNode.isObject() && grade != null) {
-            com.fasterxml.jackson.databind.JsonNode p = pricingNode.get(grade);
-            if (p != null && !p.isNull()) {
-                try { return new BigDecimal(p.asText()); } catch (Exception ignored) {}
+    private static boolean validateBySeatMap(JsonNode sections, String grade, String zone, String rowLabel, String colNum) {
+        if (!sections.isArray() || rowLabel == null || colNum == null) {
+            return false;
+        }
+
+        String normalizedRow = rowLabel.trim().toUpperCase();
+        String normalizedCol = colNum.trim();
+        String normalizedGrade = grade == null ? null : grade.trim().toUpperCase();
+        String normalizedZone = zone == null ? null : zone.trim().toUpperCase();
+
+        for (JsonNode section : sections) {
+            int rows = section.path("rows").asInt(0);
+            int cols = section.path("cols").asInt(0);
+            if (rows <= 0 || cols <= 0) {
+                continue;
+            }
+
+            String sectionRowStart = safeUpper(textOrNull(section, "rowLabelFrom"));
+            if (sectionRowStart == null || sectionRowStart.isBlank()) {
+                continue;
+            }
+
+            String sectionGrade = safeUpper(textOrNull(section, "grade"));
+            String sectionZone = safeUpper(textOrNull(section, "zone"));
+
+            if (normalizedGrade != null && !normalizedGrade.isBlank() && !normalizedGrade.equals(sectionGrade)) {
+                continue;
+            }
+            if (normalizedZone != null && !normalizedZone.isBlank() && !normalizedZone.equals(sectionZone)) {
+                continue;
+            }
+
+            int seatStart = section.path("seatStart").asInt(1);
+
+            for (int r = 0; r < rows; r++) {
+                String currentRow = incrementAlpha(sectionRowStart, r);
+                if (!currentRow.equals(normalizedRow)) {
+                    continue;
+                }
+
+                for (int c = 0; c < cols; c++) {
+                    String currentCol = String.valueOf(seatStart + c);
+                    if (currentCol.equals(normalizedCol)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static BigDecimal priceByGrade(JsonNode pricingNode, String grade) {
+        if (pricingNode == null || !pricingNode.isObject() || grade == null) {
+            return null;
+        }
+
+        JsonNode direct = pricingNode.get(grade);
+        if (direct != null) {
+            try {
+                return new BigDecimal(direct.asText());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+
+        String normalizedGrade = grade.trim().toUpperCase();
+        java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = pricingNode.fields();
+        while (fields.hasNext()) {
+            java.util.Map.Entry<String, JsonNode> entry = fields.next();
+            if (normalizedGrade.equals(entry.getKey().trim().toUpperCase())) {
+                try {
+                    return new BigDecimal(entry.getValue().asText());
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
             }
         }
         return null;
     }
 
-    private static boolean validateBySeatMap(com.fasterxml.jackson.databind.JsonNode sections, String grade, String zone, String rowLabel, String colNum) {
-        if (sections == null || !sections.isArray()) return false;
-        int col;
-        try { col = Integer.parseInt(colNum); } catch (Exception e) { return false; }
-        for (com.fasterxml.jackson.databind.JsonNode sec : sections) {
-            String g = safeUpper(textOrNull(sec, "grade"));
-            String z = safeUpper(textOrNull(sec, "zone"));
-            if (!grade.equals(g) || !zone.equals(z)) continue;
-            String rowLabelFrom = safeUpper(textOrNull(sec, "rowLabelFrom"));
-            int rows = intOrDefault(sec, "rows", 0);
-            int cols = intOrDefault(sec, "cols", 0);
-            int seatStart = intOrDefault(sec, "seatStart", 1);
-            if (rows <= 0 || cols <= 0 || rowLabelFrom == null) continue;
-            Integer rowIdx = rowIndex(rowLabelFrom, rowLabel);
-            if (rowIdx == null) continue;
-            if (rowIdx >= 0 && rowIdx < rows && col >= seatStart && col < seatStart + cols) {
-                return true;
-            }
-        }
-        return false;
+    private static String textOrNull(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? null : value.asText();
     }
 
-    private static String textOrNull(com.fasterxml.jackson.databind.JsonNode node, String field) {
-        com.fasterxml.jackson.databind.JsonNode n = node.get(field);
-        return n == null || n.isNull() ? null : n.asText();
+    private static String incrementAlpha(String start, int offset) {
+        int baseValue = alphaToInt(start) + offset;
+        return intToAlpha(baseValue);
     }
-    private static int intOrDefault(com.fasterxml.jackson.databind.JsonNode node, String field, int def) {
-        com.fasterxml.jackson.databind.JsonNode n = node.get(field);
-        return n == null || !n.canConvertToInt() ? def : n.asInt();
-    }
-    private static Integer rowIndex(String from, String target) {
-        try {
-            int f = alphaToInt(from);
-            int t = alphaToInt(target);
-            return t - f;
-        } catch (Exception e) { return null; }
-    }
+
     private static int alphaToInt(String s) {
-        int v = 0;
+        int value = 0;
         for (int i = 0; i < s.length(); i++) {
             char ch = s.charAt(i);
-            if (ch < 'A' || ch > 'Z') throw new IllegalArgumentException("Invalid row label: " + s);
-            v = v * 26 + (ch - 'A' + 1);
+            if (ch < 'A' || ch > 'Z') {
+                throw new IllegalArgumentException("Invalid row label: " + s);
+            }
+            value = value * 26 + (ch - 'A' + 1);
         }
-        return v - 1;
+        return value - 1;
+    }
+
+    private static String intToAlpha(int value) {
+        value = value + 1;
+        StringBuilder sb = new StringBuilder();
+        while (value > 0) {
+            int remainder = (value - 1) % 26;
+            sb.append((char) ('A' + remainder));
+            value = (value - 1) / 26;
+        }
+        return sb.reverse().toString();
     }
 }

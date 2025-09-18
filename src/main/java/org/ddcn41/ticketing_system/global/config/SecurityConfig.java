@@ -73,6 +73,9 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
 
+                        // Queue API는 인증 필요 (대부분의 엔드포인트가 @SecurityRequirement 있음)
+                        .requestMatchers("/api/v1/queue/**").authenticated()
+
                         // 정적 리소스 및 페이지 라우팅 허용
                         .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
                         .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()
@@ -91,7 +94,10 @@ public class SecurityConfig {
 
                         // 공연조회 API 허용
                         .requestMatchers("/v1/performances/**").permitAll()
-                        
+                        //todo 식제
+                        .requestMatchers("/api/v1/queue/release-session").permitAll()
+
+
                         // 예매 관련 API - 인증 필요
                         .requestMatchers("/v1/bookings/**").permitAll()
                         
