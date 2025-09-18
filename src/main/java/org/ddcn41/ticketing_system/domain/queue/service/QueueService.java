@@ -53,12 +53,12 @@ public class QueueService {
     /**
      * 대기열 필요성 확인 - Redis 기반으로 통일
      */
+    private static final String DIRECT_SESSION_KEY_PREFIX = "direct_session:";
+
     public QueueCheckResponse checkQueueRequirement(Long performanceId, Long scheduleId, Long userId) {
-        String sessionKey = SESSION_KEY_PREFIX + performanceId + ":" + scheduleId;
         String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
 
         try {
-            // Redis에서 현재 활성 토큰 수 확인 (DB 대신 Redis 사용)
             String activeTokensStr = redisTemplate.opsForValue().get(activeTokensKey);
             int activeTokens = activeTokensStr != null ? Integer.parseInt(activeTokensStr) : 0;
 
@@ -71,9 +71,9 @@ public class QueueService {
                 redisTemplate.opsForValue().increment(activeTokensKey);
                 redisTemplate.expire(activeTokensKey, Duration.ofMinutes(10));
 
-                // 세션도 증가 (기존 로직 유지)
-                redisTemplate.opsForValue().increment(sessionKey);
-                redisTemplate.expire(sessionKey, Duration.ofMinutes(10));
+                // 직접 입장 세션 추적을 위한 별도 키 생성
+                String directSessionKey = DIRECT_SESSION_KEY_PREFIX + userId + ":" + performanceId + ":" + scheduleId;
+                redisTemplate.opsForValue().set(directSessionKey, "active", Duration.ofMinutes(10));
 
                 // heartbeat 시작
                 startHeartbeat(userId, performanceId, scheduleId);
@@ -279,20 +279,33 @@ public class QueueService {
     public void releaseSession(Long userId, Long performanceId, Long scheduleId) {
         String sessionKey = SESSION_KEY_PREFIX + performanceId + ":" + scheduleId;
         String heartbeatKey = HEARTBEAT_KEY_PREFIX + userId + ":" + performanceId + ":" + scheduleId;
+        String directSessionKey = DIRECT_SESSION_KEY_PREFIX + userId + ":" + performanceId + ":" + scheduleId;
 
         log.info("=== 세션 해제 시작 ===");
         log.info("사용자: {}, 공연: {}", userId, performanceId);
 
-        // 1. 세션 카운트 감소
+        // 1. ⭐ 반드시 heartbeat 제거 (메모리 누수 및 중복 정리 방지)
+        boolean heartbeatExisted = redisTemplate.delete(heartbeatKey);
+        log.info("Heartbeat 제거: {} (존재했음: {})", heartbeatKey, heartbeatExisted);
+
+        // 2. 세션 카운트 감소
         Long currentCount = redisTemplate.opsForValue().decrement(sessionKey);
         if (currentCount < 0) {
             redisTemplate.opsForValue().set(sessionKey, "0");
         }
 
-        // 2. heartbeat 제거
-        redisTemplate.delete(heartbeatKey);
+        // 3. 직접 세션 확인 및 해제
+        boolean isDirectSession = redisTemplate.delete(directSessionKey); // delete는 boolean 반환
 
-        // 3. **핵심**: DB에서 해당 사용자의 활성 토큰을 만료 처리
+        boolean releasedRedisCounter = false;
+
+        if (isDirectSession) {
+            releaseTokenFromRedis(performanceId);
+            releasedRedisCounter = true;
+            log.info(">>> 직접 입장 세션 해제 - Redis 카운터 감소");
+        }
+
+        // 4. DB 토큰 기반 세션 처리
         try {
             User user = userRepository.findById(userId).orElse(null);
             Performance performance = performanceRepository.findById(performanceId).orElse(null);
@@ -305,24 +318,32 @@ public class QueueService {
                         activeToken.get().getStatus() == QueueToken.TokenStatus.ACTIVE) {
 
                     QueueToken token = activeToken.get();
-
-                    // DB에서 토큰 만료 처리
                     token.markAsExpired();
                     queueTokenRepository.save(token);
 
-                    // Redis에서 활성 토큰 수 감소
-                    releaseTokenFromRedis(performanceId);
+                    // 직접 세션이 아닌 경우에만 Redis 카운터 감소 (중복 방지)
+                    if (!releasedRedisCounter) {
+                        releaseTokenFromRedis(performanceId);
+                        releasedRedisCounter = true;
+                    }
 
                     log.info(">>> DB 토큰 만료 처리: {}", token.getToken());
-
-                    // 즉시 다음 대기자 활성화
-                    activateNextTokens(performance);
-                } else {
-                    log.info(">>> 해당 사용자의 활성 토큰 없음");
                 }
             }
         } catch (Exception e) {
             log.error("토큰 만료 처리 중 오류", e);
+        }
+
+        // 5. 아무것도 처리되지 않았다면 직접 세션으로 간주 (fallback)
+        if (!releasedRedisCounter && heartbeatExisted) {
+            releaseTokenFromRedis(performanceId);
+            log.info(">>> Fallback: heartbeat 존재했던 세션으로 간주하여 Redis 카운터 감소");
+        }
+
+        // 6. 다음 대기자 활성화
+        Performance performance = performanceRepository.findById(performanceId).orElse(null);
+        if (performance != null) {
+            activateNextTokens(performance);
         }
 
         log.info(">>> 세션 해제 완료 - 현재 세션: {}", currentCount);
@@ -417,7 +438,32 @@ public class QueueService {
                     if (lastHeartbeat != null) {
                         LocalDateTime lastTime = LocalDateTime.parse(lastHeartbeat);
                         if (lastTime.isBefore(cutoff)) {
+                            // processTimeout에서 releaseSession을 호출하면
+                            // 그 안에서 heartbeat를 제거하므로 중복 제거 방지됨
                             processTimeout(heartbeatKey);
+                        }
+                    }
+                }
+            }
+
+            // 직접 세션 정리 (heartbeat 없이 남아있는 경우)
+            Set<String> directSessionKeys = redisTemplate.keys(DIRECT_SESSION_KEY_PREFIX + "*");
+            if (directSessionKeys != null) {
+                for (String directKey : directSessionKeys) {
+                    String[] parts = directKey.replace(DIRECT_SESSION_KEY_PREFIX, "").split(":");
+                    if (parts.length >= 3) {
+                        String correspondingHeartbeat = HEARTBEAT_KEY_PREFIX + parts[0] + ":" + parts[1] + ":" + parts[2];
+
+                        // 해당 heartbeat가 없다면 고아 직접 세션이므로 정리
+                        if (!redisTemplate.hasKey(correspondingHeartbeat)) {
+                            redisTemplate.delete(directKey);
+                            try {
+                                Long performanceId = Long.parseLong(parts[1]);
+                                releaseTokenFromRedis(performanceId);
+                                log.info(">>> 고아 직접 세션 정리: {}", directKey);
+                            } catch (NumberFormatException e) {
+                                log.warn("직접 세션 키 파싱 실패: {}", directKey);
+                            }
                         }
                     }
                 }
@@ -531,16 +577,26 @@ public class QueueService {
             throw new IllegalArgumentException("토큰을 취소할 권한이 없습니다");
         }
 
+        // 중요: 상태를 변경하기 전에 원래 상태 확인
+        QueueToken.TokenStatus originalStatus = queueToken.getStatus();
+        boolean wasActive = (originalStatus == QueueToken.TokenStatus.ACTIVE);
+
+        // 토큰 상태를 CANCELLED로 변경
         queueToken.setStatus(QueueToken.TokenStatus.CANCELLED);
         queueTokenRepository.save(queueToken);
 
-        // 활성 상태였다면 Redis에서도 해제
-        if (queueToken.getStatus() == QueueToken.TokenStatus.ACTIVE) {
+        log.info("토큰 취소: {} (원래 상태: {})", token, originalStatus);
+
+        // 원래 활성 상태였다면 Redis 카운터 감소
+        if (wasActive) {
             releaseTokenFromRedis(queueToken.getPerformance().getPerformanceId());
+            log.info(">>> 활성 토큰 취소로 Redis 카운터 감소");
         }
 
+        // 다음 대기자 활성화
         activateNextTokens(queueToken.getPerformance());
     }
+
 
     @Transactional(readOnly = true)
     public List<QueueStatusResponse> getUserActiveTokens(Long userId) {
