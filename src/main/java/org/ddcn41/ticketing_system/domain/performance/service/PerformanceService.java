@@ -12,6 +12,7 @@ import org.ddcn41.ticketing_system.domain.venue.entity.Venue;
 import org.ddcn41.ticketing_system.domain.venue.repository.VenueRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -24,6 +25,7 @@ public class PerformanceService {
     private final PerformanceScheduleRepository performanceScheduleRepository;
 
     private final VenueRepository venueRepository;
+    private final S3Service s3ImageService;
 
     public Performance getPerformanceById(Long performanceId){
         return performanceRepository.findById(performanceId)
@@ -59,7 +61,7 @@ public class PerformanceService {
         return performanceScheduleRepository.findByPerformance_PerformanceIdOrderByShowDatetimeAsc(performanceId);
     }
 
-    public PerformanceResponse createPerformance(PerformanceRequestDto createPerformanceRequestDto) {
+    public PerformanceResponse createPerformance(PerformanceRequestDto createPerformanceRequestDto, MultipartFile posterImage) {
         Venue venue = venueRepository.findById(createPerformanceRequestDto.getVenueId())
                 .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ createPerformanceRequestDto.getVenueId()));
 
@@ -70,7 +72,6 @@ public class PerformanceService {
                 .title(createPerformanceRequestDto.getTitle())
                 .description(createPerformanceRequestDto.getDescription())
                 .theme(createPerformanceRequestDto.getTheme())
-                .posterUrl(createPerformanceRequestDto.getPosterUrl())
                 .startDate(createPerformanceRequestDto.getStartDate())
                 .endDate(createPerformanceRequestDto.getEndDate())
                 .runningTime(createPerformanceRequestDto.getRunningTime())
@@ -79,18 +80,21 @@ public class PerformanceService {
                 .schedules(createPerformanceRequestDto.getSchedules())
                 .build();
 
+        handleImageUploads(performance, posterImage);
+
         Performance savedPerformance = performanceRepository.save(performance);
         return PerformanceResponse.from(savedPerformance);
     }
 
     public void deletePerformance(Long performanceId) {
-        if (!performanceRepository.existsById(performanceId)) {
-            throw new EntityNotFoundException("Performance not found with id: "+performanceId);
-        }
-        performanceRepository.deleteById(performanceId);
+        Performance performance = getPerformanceById(performanceId);
+
+        deleteExistingImages(performance);
+
+        performanceRepository.delete(performance);
     }
 
-    public PerformanceResponse updatePerformance(Long performanceId, PerformanceRequestDto updatePerformanceRequestDto) {
+    public PerformanceResponse updatePerformance(Long performanceId, PerformanceRequestDto updatePerformanceRequestDto, MultipartFile posterImage) {
         Performance performance = getPerformanceById(performanceId);
 
         Venue venue = venueRepository.findById(updatePerformanceRequestDto.getVenueId())
@@ -108,7 +112,39 @@ public class PerformanceService {
         performance.setStatus(updatePerformanceRequestDto.getStatus());
         performance.setSchedules(updatePerformanceRequestDto.getSchedules());
 
+        // 새 이미지가 있다면 기존 이미지 삭제 후 새 이미지 업로드
+        if (posterImage != null && !posterImage.isEmpty()) {
+            deleteExistingImages(performance);
+            handleImageUploads(performance, posterImage);
+        }
+
         Performance updatedPerformance = performanceRepository.save(performance);
         return PerformanceResponse.from(updatedPerformance);
+    }
+
+    /**
+     * 이미지 업로드 처리
+     */
+    private void handleImageUploads(Performance performance,
+                                    MultipartFile posterImage) {
+        if (posterImage != null && !posterImage.isEmpty()) {
+            try {
+                String posterImageUrl = s3ImageService.uploadImage(posterImage, "performances/posters");
+                performance.setPosterUrl(posterImageUrl);
+            } catch (Exception e) {
+                performance.setPosterUrl(null);
+                // 필요에 따라 예외를 던지거나 기본값 설정
+            }
+        }
+    }
+
+    /**
+     * 기존 이미지 삭제
+     */
+    private void deleteExistingImages(Performance performance) {
+        // 기존 포스터 이미지 삭제
+        if (performance.getPosterUrl() != null) {
+            s3ImageService.deleteImage(performance.getPosterUrl());
+        }
     }
 }

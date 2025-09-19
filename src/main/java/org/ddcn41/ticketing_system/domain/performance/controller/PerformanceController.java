@@ -15,8 +15,10 @@ import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceSc
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.service.PerformanceService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -104,17 +106,34 @@ public class PerformanceController {
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Performance created",
-                    content = @Content(schema = @Schema(implementation = PerformanceRequestDto.class))),
+                    content = @Content(schema = @Schema(implementation = PerformanceResponse.class))),
             @ApiResponse(responseCode = "404", description = "Related resource not found", content = @Content)
     })
-    @PostMapping
+    @PostMapping(consumes = "multipart/form-data")
     public ResponseEntity<PerformanceResponse> createPerformance(
-            @RequestBody PerformanceRequestDto createPerformanceRequestDto) {
-        PerformanceResponse performanceResponse = performanceService.createPerformance(createPerformanceRequestDto);
+            @Parameter(
+                    description = "공연 정보 (JSON 형태)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = PerformanceRequestDto.class)
+                    )
+            )
+            @RequestPart("performance") PerformanceRequestDto createPerformanceRequestDto,
+
+            @Parameter(
+                    description = "포스터 이미지 파일 (선택사항)",
+                    required = false,
+                    content = @Content(
+                            mediaType = "image/*",
+                            schema = @Schema(type = "string", format = "binary")
+                    )
+            )
+            @RequestPart(value = "posterImage", required=false)MultipartFile posterImage) {
+        PerformanceResponse performanceResponse = performanceService.createPerformance(createPerformanceRequestDto, posterImage);
         return ResponseEntity.status(HttpStatus.CREATED).body(performanceResponse);
     }
 
-    @PutMapping("/{performanceId}")
+    @PutMapping(value = "/{performanceId}", consumes = "multipart/form-data")
     @Operation(
             summary = "공연 수정",
             description = "공연 대시보드에서 기존 공연을 수정할 때 사용"
@@ -124,7 +143,7 @@ public class PerformanceController {
             @ApiResponse(responseCode = "200", description = "공연 수정 성공",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = PerformanceRequestDto.class)
+                            schema = @Schema(implementation = PerformanceResponse.class)
                     )
             ),
             @ApiResponse(
@@ -135,8 +154,24 @@ public class PerformanceController {
     })
     public ResponseEntity<PerformanceResponse> updatePerformance(
             @Parameter(description = "Performance ID", required = true) @PathVariable long performanceId,
-            @RequestBody PerformanceRequestDto updatePerformanceRequestDto) {
-        PerformanceResponse performanceResponse = performanceService.updatePerformance(performanceId, updatePerformanceRequestDto);
+            @Parameter(
+                    description = "공연 정보 (JSON 형태)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = PerformanceRequestDto.class)
+                    )
+            )
+            @RequestPart("performance") PerformanceRequestDto updatePerformanceRequestDto,
+            @Parameter(
+                    description = "포스터 이미지 파일 (선택사항)",
+                    required = false,
+                    content = @Content(
+                            mediaType = "image/*",
+                            schema = @Schema(type = "string", format = "binary")
+                    )
+            )
+            @RequestPart(value="posterImage", required = false) MultipartFile posterImage) {
+        PerformanceResponse performanceResponse = performanceService.updatePerformance(performanceId, updatePerformanceRequestDto, posterImage);
         return ResponseEntity.ok(performanceResponse);
     }
 
