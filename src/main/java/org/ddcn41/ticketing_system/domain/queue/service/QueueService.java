@@ -282,10 +282,10 @@ public class QueueService {
         queueToken.setPositionInQueue(position.intValue());
         queueToken.setEstimatedWaitTimeMinutes(estimatedMinutes);
 
-        if (position > 1) {
-            queueTokenRepository.save(queueToken);
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "아직 활성화 차례가 아닙니다");
-        }
+//        if (position > 1) {
+//            queueTokenRepository.save(queueToken);
+//            throw new ResponseStatusException(HttpStatus.CONFLICT, "아직 활성화 차례가 아닙니다");
+//        }
 
         String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
 
@@ -293,10 +293,10 @@ public class QueueService {
         if (newCount == null) {
             newCount = 1L;
         }
-        if (newCount > maxActiveTokens) {
-            redisTemplate.opsForValue().decrement(activeTokensKey);
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "현재 입장 가능한 인원이 가득 찼습니다");
-        }
+//        if (newCount > maxActiveTokens) {
+//            redisTemplate.opsForValue().decrement(activeTokensKey);
+//            throw new ResponseStatusException(HttpStatus.CONFLICT, "현재 입장 가능한 인원이 가득 찼습니다");
+//        }
         redisTemplate.expire(activeTokensKey, Duration.ofMinutes(10));
 
         try {
