@@ -21,7 +21,7 @@ public interface ScheduleSeatRepository extends JpaRepository<ScheduleSeat, Long
     @Query("SELECT COUNT(s) FROM ScheduleSeat s WHERE s.schedule.scheduleId = :scheduleId AND s.status = 'AVAILABLE'")
     int countAvailableSeatsByScheduleId(@Param("scheduleId") Long scheduleId);
 
-    // 🔥 SeatService에서 필요한 핵심 메서드들
+    // SeatService에서 필요한 핵심 메서드들
 
     /**
      * 스케줄 ID로 모든 좌석 조회 (SeatService.getSeatsAvailability에서 사용)
