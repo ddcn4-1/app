@@ -14,8 +14,10 @@ import org.ddcn41.ticketing_system.domain.user.entity.User;
 import org.ddcn41.ticketing_system.domain.user.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -23,7 +25,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -51,60 +52,82 @@ public class QueueService {
     private static final String ACTIVE_TOKENS_KEY_PREFIX = "active_tokens:"; // 새로 추가
 
     /**
-     * 대기열 필요성 확인 - Redis 기반으로 통일
+     * 대기열 생성 시 직접 입장 세션 추적용 (heartbeat와 별개)
      */
     private static final String DIRECT_SESSION_KEY_PREFIX = "direct_session:";
 
-    public QueueCheckResponse checkQueueRequirement(Long performanceId, Long scheduleId, Long userId) {
+    public QueueCheckResponse getBookingToken(Long performanceId, Long scheduleId, Long userId) {
         String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
 
         try {
             String activeTokensStr = redisTemplate.opsForValue().get(activeTokensKey);
             int activeTokens = activeTokensStr != null ? Integer.parseInt(activeTokensStr) : 0;
 
-            log.info("=== 대기열 확인 ===");
-            log.info("사용자: {}, 현재 활성 토큰: {}/{}", userId, activeTokens, maxActiveTokens);
-            log.info("Redis activeTokensKey: {}, 값: {}", activeTokensKey, activeTokensStr);
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
+
+            Performance performance = performanceRepository.findById(performanceId)
+                    .orElseThrow(() -> new IllegalArgumentException("공연을 찾을 수 없습니다"));
 
             if (activeTokens < maxActiveTokens) {
-                // Redis에서 활성 토큰 수 증가
+                // Direct 입장 - 즉시 ACTIVE 토큰 발급
+                String tokenString = generateToken();
+                QueueToken directToken = QueueToken.builder()
+                        .token(tokenString)
+                        .user(user)
+                        .performance(performance)
+                        .status(QueueToken.TokenStatus.ACTIVE)
+                        .issuedAt(LocalDateTime.now())
+                        .expiresAt(LocalDateTime.now().plusHours(1))
+                        .positionInQueue(0)
+                        .estimatedWaitTimeMinutes(0)
+                        .build();
+
+                directToken.activate();
+                queueTokenRepository.save(directToken);
+
                 redisTemplate.opsForValue().increment(activeTokensKey);
                 redisTemplate.expire(activeTokensKey, Duration.ofMinutes(10));
 
-                // 직접 입장 세션 추적을 위한 별도 키 생성
                 String directSessionKey = DIRECT_SESSION_KEY_PREFIX + userId + ":" + performanceId + ":" + scheduleId;
                 redisTemplate.opsForValue().set(directSessionKey, "active", Duration.ofMinutes(10));
-
-                // heartbeat 시작
                 startHeartbeat(userId, performanceId, scheduleId);
-
-                log.info(">>> 바로 입장 허용 - 새로운 활성 토큰 수: {}", activeTokens + 1);
 
                 return QueueCheckResponse.builder()
                         .requiresQueue(false)
                         .canProceedDirectly(true)
-                        .sessionId(UUID.randomUUID().toString())
+                        .sessionId(tokenString)  // 토큰 반환
                         .message("좌석 선택으로 이동합니다")
                         .currentActiveSessions(activeTokens + 1)
                         .maxConcurrentSessions(maxActiveTokens)
-                        .reason("서버 여유 있음")
                         .build();
             } else {
-                // 대기열 필요
+                // 대기열 진입 - WAITING 토큰 발급
+                String tokenString = generateToken();
+                QueueToken waitingToken = QueueToken.builder()
+                        .token(tokenString)
+                        .user(user)
+                        .performance(performance)
+                        .status(QueueToken.TokenStatus.WAITING)
+                        .issuedAt(LocalDateTime.now())
+                        .expiresAt(LocalDateTime.now().plusHours(2))
+                        .build();
+
+                QueueToken savedToken = queueTokenRepository.save(waitingToken);
+                updateQueuePosition(savedToken);
+
                 int waitingCount = getRedisWaitingCount(performanceId);
                 int estimatedWait = (waitingCount + 1) * waitTimePerPerson;
-
-                log.info(">>> 대기열 필요 - 대기자: {}명, 예상 대기: {}초", waitingCount + 1, estimatedWait);
 
                 return QueueCheckResponse.builder()
                         .requiresQueue(true)
                         .canProceedDirectly(false)
+                        .sessionId(tokenString)  // 토큰 반환 (대기열용)
                         .message("현재 많은 사용자가 접속중입니다. 대기열에 참여합니다.")
                         .currentActiveSessions(activeTokens)
                         .maxConcurrentSessions(maxActiveTokens)
                         .estimatedWaitTime(estimatedWait)
                         .currentWaitingCount(waitingCount + 1)
-                        .reason("서버 용량 초과 (3명 초과)")
                         .build();
             }
         } catch (Exception e) {
@@ -118,8 +141,8 @@ public class QueueService {
         }
     }
 
-    /**
-     * 대기열 토큰 발급 - Redis 기반
+   /**
+     * 대기열 토큰 발급 - Redis 기반 todo. test 진행 후 삭제 예정
      */
     public TokenIssueResponse issueQueueToken(Long userId, Long performanceId) {
         User user = userRepository.findById(userId)
@@ -211,6 +234,90 @@ public class QueueService {
                 .isActiveForBooking(queueToken.isActiveForBooking())
                 .bookingExpiresAt(queueToken.getBookingExpiresAt())
                 .build();
+    }
+    public QueueStatusResponse activateToken(String token, Long userId, Long performanceId, Long scheduleId) {
+        QueueToken queueToken = queueTokenRepository.findByToken(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "토큰을 찾을 수 없습니다"));
+
+        if (!queueToken.getUser().getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "토큰을 찾을 수 없습니다");
+        }
+
+        if (!queueToken.getPerformance().getPerformanceId().equals(performanceId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "요청한 공연 정보와 토큰이 일치하지 않습니다");
+        }
+
+        if (queueToken.getStatus() == QueueToken.TokenStatus.CANCELLED ||
+                queueToken.getStatus() == QueueToken.TokenStatus.USED) {
+            throw new ResponseStatusException(HttpStatus.GONE, "토큰이 만료되었거나 취소되었습니다");
+        }
+
+        if (queueToken.getStatus() == QueueToken.TokenStatus.ACTIVE) {
+            if (queueToken.isExpired()) {
+                queueToken.markAsExpired();
+                queueTokenRepository.save(queueToken);
+                releaseTokenFromRedis(performanceId);
+                activateNextTokens(queueToken.getPerformance());
+                throw new ResponseStatusException(HttpStatus.GONE, "토큰이 만료되었습니다");
+            }
+            return buildQueueStatusResponse(queueToken);
+        }
+
+        if (queueToken.isExpired()) {
+            queueToken.markAsExpired();
+            queueTokenRepository.save(queueToken);
+            updateWaitingPositions(queueToken.getPerformance());
+            throw new ResponseStatusException(HttpStatus.GONE, "토큰이 만료되었습니다");
+        }
+
+        if (queueToken.getStatus() != QueueToken.TokenStatus.WAITING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "대기 중인 토큰만 활성화할 수 있습니다");
+        }
+
+        Long position = queueTokenRepository.findPositionInQueue(
+                queueToken.getPerformance(), queueToken.getIssuedAt()) + 1;
+
+        int estimatedSeconds = position.intValue() * waitTimePerPerson;
+        int estimatedMinutes = Math.max(1, estimatedSeconds / 60);
+        queueToken.setPositionInQueue(position.intValue());
+        queueToken.setEstimatedWaitTimeMinutes(estimatedMinutes);
+
+        if (position > 1) {
+            queueTokenRepository.save(queueToken);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "아직 활성화 차례가 아닙니다");
+        }
+
+        String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
+
+        Long newCount = redisTemplate.opsForValue().increment(activeTokensKey);
+        if (newCount == null) {
+            newCount = 1L;
+        }
+        if (newCount > maxActiveTokens) {
+            redisTemplate.opsForValue().decrement(activeTokensKey);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "현재 입장 가능한 인원이 가득 찼습니다");
+        }
+        redisTemplate.expire(activeTokensKey, Duration.ofMinutes(10));
+
+        try {
+            queueToken.activate();
+            queueTokenRepository.save(queueToken);
+
+            startHeartbeat(userId, performanceId, scheduleId);
+
+            if (scheduleId != null) {
+                String sessionKey = SESSION_KEY_PREFIX + performanceId + ":" + scheduleId;
+                redisTemplate.opsForValue().increment(sessionKey);
+                redisTemplate.expire(sessionKey, Duration.ofMinutes(10));
+            }
+
+            updateWaitingPositions(queueToken.getPerformance());
+        } catch (RuntimeException ex) {
+            redisTemplate.opsForValue().decrement(activeTokensKey);
+            throw ex;
+        }
+
+        return buildQueueStatusResponse(queueToken);
     }
 
     /**
@@ -610,6 +717,23 @@ public class QueueService {
                 .message(message)
                 .expiresAt(token.getExpiresAt())
                 .bookingExpiresAt(token.getBookingExpiresAt())
+                .build();
+    }
+    private QueueStatusResponse buildQueueStatusResponse(QueueToken token) {
+        Integer position = token.getPositionInQueue() != null ? token.getPositionInQueue() :
+                (token.getStatus() == QueueToken.TokenStatus.WAITING ? 1 : 0);
+        Integer waitTime = token.getEstimatedWaitTimeMinutes() != null ?
+                token.getEstimatedWaitTimeMinutes() :
+                (token.getStatus() == QueueToken.TokenStatus.WAITING ? Math.max(1, waitTimePerPerson / 60) : 0);
+
+        return QueueStatusResponse.builder()
+                .token(token.getToken())
+                .status(token.getStatus())
+                .positionInQueue(position)
+                .estimatedWaitTime(waitTime)
+                .isActiveForBooking(token.isActiveForBooking())
+                .bookingExpiresAt(token.getBookingExpiresAt())
+                .performanceTitle(token.getPerformance() != null ? token.getPerformance().getTitle() : null)
                 .build();
     }
 

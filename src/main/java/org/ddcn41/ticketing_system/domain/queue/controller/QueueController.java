@@ -13,9 +13,9 @@ import lombok.RequiredArgsConstructor;
 
 // Queue 관련 import
 import org.ddcn41.ticketing_system.domain.queue.dto.request.HeartbeatRequest;
-import org.ddcn41.ticketing_system.domain.queue.dto.request.SessionReleaseRequest;
-import org.ddcn41.ticketing_system.domain.queue.dto.request.QueueCheckRequest;
+import org.ddcn41.ticketing_system.domain.queue.dto.request.TokenActivateRequest;
 import org.ddcn41.ticketing_system.domain.queue.dto.request.TokenIssueRequest;
+import org.ddcn41.ticketing_system.domain.queue.dto.request.TokenRequest;
 import org.ddcn41.ticketing_system.domain.queue.dto.response.QueueCheckResponse;
 import org.ddcn41.ticketing_system.domain.queue.dto.response.QueueStatusResponse;
 import org.ddcn41.ticketing_system.domain.queue.dto.response.TokenIssueResponse;
@@ -71,13 +71,13 @@ public class QueueController {
                     content = @Content)
     })
     public ResponseEntity<ApiResponse<QueueCheckResponse>> checkQueueRequirement(
-            @Valid @RequestBody QueueCheckRequest request,
+            @Valid @RequestBody TokenRequest request,
             Authentication authentication) {
 
         String username = authentication.getName();
         User user = userService.findByUsername(username);
 
-        QueueCheckResponse response = queueService.checkQueueRequirement(
+        QueueCheckResponse response = queueService.getBookingToken(
                 request.getPerformanceId(),
                 request.getScheduleId(),
                 user.getUserId()
@@ -89,7 +89,7 @@ public class QueueController {
     }
 
     /**
-     * 대기열 토큰 발급
+     * 대기열 토큰 발급 todo. test 완료 후 삭제
      */
     @PostMapping("/token")
     @Operation(summary = "대기열 토큰 발급", description = "특정 공연에 대한 대기열 토큰을 발급받습니다.")
@@ -124,6 +124,53 @@ public class QueueController {
 
         return ResponseEntity.ok(
                 ApiResponse.success("대기열 토큰이 발급되었습니다", response)
+        );
+    }
+
+    /**
+     * 대기열 토큰 활성화 (입장 승인)
+     */
+    @PostMapping("/activate")
+    @Operation(summary = "대기열 토큰 활성화", description = "WAITING 상태의 토큰을 ACTIVE로 승격합니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "활성화 성공",
+                    content = @Content(schema = @Schema(implementation = QueueStatusResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 실패",
+                    content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "토큰을 찾을 수 없음",
+                    content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "409",
+                    description = "아직 활성화 자격 없음",
+                    content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "410",
+                    description = "만료/취소된 토큰",
+                    content = @Content)
+    })
+    public ResponseEntity<ApiResponse<QueueStatusResponse>> activateToken(
+            @Valid @RequestBody TokenActivateRequest request,
+            Authentication authentication) {
+
+        String username = authentication.getName();
+        User user = userService.findByUsername(username);
+
+        QueueStatusResponse response = queueService.activateToken(
+                request.getToken(),
+                user.getUserId(),
+                request.getPerformanceId(),
+                request.getScheduleId()
+        );
+
+        return ResponseEntity.ok(
+                ApiResponse.success("대기열 토큰이 활성화되었습니다", response)
         );
     }
 

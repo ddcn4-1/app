@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class QueueCheckRequest {
+public class TokenRequest {
 
     @NotNull(message = "공연 ID는 필수입니다")
     private Long performanceId;
