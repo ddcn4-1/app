@@ -49,7 +49,7 @@ public class Booking {
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     @Builder.Default
-    private BookingStatus status = BookingStatus.PENDING;
+    private BookingStatus status = BookingStatus.CONFIRMED;
 
     @Column(name = "expires_at")
     private LocalDateTime expiresAt;
@@ -82,6 +82,6 @@ public class Booking {
     private List<Refund> refunds;
 
     public enum BookingStatus {
-        PENDING, CONFIRMED, CANCELLED
+        CONFIRMED, CANCELLED
     }
 }

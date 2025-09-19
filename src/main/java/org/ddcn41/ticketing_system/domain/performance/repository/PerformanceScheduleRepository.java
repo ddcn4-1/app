@@ -21,4 +21,35 @@ public interface PerformanceScheduleRepository extends JpaRepository<Performance
     @Modifying(clearAutomatically = false, flushAutomatically = false)
     @Query("UPDATE PerformanceSchedule s SET s.availableSeats = s.availableSeats - :delta WHERE s.scheduleId = :scheduleId AND s.availableSeats >= :delta")
     int decrementAvailableSeats(@Param("scheduleId") Long scheduleId, @Param("delta") int delta);
+
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("""
+            UPDATE PerformanceSchedule s
+            SET s.status = CASE
+                    WHEN s.showDatetime <= CURRENT_TIMESTAMP THEN 'CLOSED'
+                    WHEN s.availableSeats <= 0 THEN 'SOLDOUT'
+                    ELSE 'OPEN'
+                END
+            WHERE s.scheduleId = :scheduleId
+            """)
+    int refreshScheduleStatus(@Param("scheduleId") Long scheduleId);
+
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("""
+            UPDATE PerformanceSchedule s
+            SET s.status = 'CLOSED'
+            WHERE s.showDatetime <= CURRENT_TIMESTAMP AND s.status <> 'CLOSED'
+            """)
+    int closePastSchedules();
+
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("""
+            UPDATE PerformanceSchedule s
+            SET s.status = CASE
+                    WHEN s.showDatetime <= CURRENT_TIMESTAMP THEN 'CLOSED'
+                    WHEN s.availableSeats <= 0 THEN 'SOLDOUT'
+                    ELSE 'OPEN'
+                END
+            """)
+    int refreshAllScheduleStatuses();
 }

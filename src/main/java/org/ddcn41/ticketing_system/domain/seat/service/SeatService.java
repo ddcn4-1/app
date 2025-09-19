@@ -177,7 +177,11 @@ public class SeatService {
 
             // 7. 스케줄 가용 좌석 카운터 감소 (AVAILABLE -> LOCKED 전이 수만큼)
             if (scheduleIdForCounter != null && newlyLocked > 0) {
-                scheduleRepository.decrementAvailableSeats(scheduleIdForCounter, newlyLocked);
+                int affected = scheduleRepository.decrementAvailableSeats(scheduleIdForCounter, newlyLocked);
+                if (affected == 0) {
+                    throw new RuntimeException("잔여 좌석 수 갱신 실패: 이미 매진된 스케줄입니다.");
+                }
+                scheduleRepository.refreshScheduleStatus(scheduleIdForCounter);
             }
 
             return SeatLockResponse.success("좌석 락 성공", expiresAt);
@@ -274,7 +278,11 @@ public class SeatService {
         }
 
         if (scheduleIdForCounter != null && restored > 0) {
-            scheduleRepository.incrementAvailableSeats(scheduleIdForCounter, restored);
+            int affected = scheduleRepository.incrementAvailableSeats(scheduleIdForCounter, restored);
+            if (affected == 0) {
+                throw new RuntimeException("좌석 복원 중 스케줄 가용 좌석 업데이트 실패");
+            }
+            scheduleRepository.refreshScheduleStatus(scheduleIdForCounter);
         }
 
         return true;
@@ -431,7 +439,12 @@ public class SeatService {
 
             // 가용 좌석 카운터 증가 (LOCKED/BOOKED -> AVAILABLE 전이인 경우만)
             if (seat.getSchedule() != null && wasLockedOrBooked) {
-                scheduleRepository.incrementAvailableSeats(seat.getSchedule().getScheduleId(), 1);
+                Long scheduleId = seat.getSchedule().getScheduleId();
+                int affected = scheduleRepository.incrementAvailableSeats(scheduleId, 1);
+                if (affected == 0) {
+                    throw new RuntimeException("좌석 해제 중 스케줄 가용 좌석 업데이트 실패");
+                }
+                scheduleRepository.refreshScheduleStatus(scheduleId);
             }
 
             // Redis 락 해제

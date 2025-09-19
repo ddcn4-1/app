@@ -101,6 +101,8 @@ public class BookingController {
             @Parameter(description = "Booking ID", required = true)
             @PathVariable Long bookingId,
             @Valid @RequestBody(required = false) CancelBookingRequestDto body) {
-        return ResponseEntity.ok(bookingService.cancelBooking(bookingId, body));
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = auth != null ? auth.getName() : null;
+        return ResponseEntity.ok(bookingService.cancelBooking(bookingId, body, username));
     }
 }

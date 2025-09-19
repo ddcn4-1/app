@@ -172,6 +172,7 @@ public class ScheduleSeatInitializationService {
             schedule.setTotalSeats(Math.toIntExact(total));
             schedule.setAvailableSeats(available);
             scheduleRepository.save(schedule);
+            scheduleRepository.refreshScheduleStatus(scheduleId);
         }
 
         return InitializeSeatsResponse.builder()
