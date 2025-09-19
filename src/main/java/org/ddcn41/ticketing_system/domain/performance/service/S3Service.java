@@ -69,8 +69,7 @@ public class S3Service {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String uuid = UUID.randomUUID().toString().substring(0, 8);
 
-        return String.format("%s/%s/%s_%s%s", folder, timestamp, uuid,
-                originalFilename.replaceAll("[^a-zA-Z0-9.]", "_"), extension);
+        return String.format("%s/%s/%s%s", folder, timestamp, uuid, extension);
     }
 
     /**
