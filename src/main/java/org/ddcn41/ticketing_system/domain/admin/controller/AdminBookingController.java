@@ -58,37 +58,4 @@ public class AdminBookingController {
         return ResponseEntity.ok(bookingService.getBookingDetail(bookingId));
     }
 
-    @PutMapping("/{bookingId}/confirm")
-    @Operation(summary = "Confirm booking (Admin)", description = "Confirms a pending booking - Admin only")
-    @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Booking confirmed successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid booking status or booking cannot be confirmed"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized", content = @Content),
-            @ApiResponse(responseCode = "403", description = "Admin access required", content = @Content),
-            @ApiResponse(responseCode = "404", description = "Booking not found", content = @Content)
-    })
-    public ResponseEntity<Void> confirmBooking(
-            @Parameter(description = "Booking ID", required = true)
-            @PathVariable Long bookingId) {
-        bookingService.confirmBooking(bookingId);
-        return ResponseEntity.ok().build();
-    }
-
-    @GetMapping("/{bookingId}/confirm")
-    @Operation(summary = "Confirm booking via GET (Admin)", description = "Confirms a pending booking via GET request - Admin only (for convenience)")
-    @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Booking confirmed successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid booking status or booking cannot be confirmed"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized", content = @Content),
-            @ApiResponse(responseCode = "403", description = "Admin access required", content = @Content),
-            @ApiResponse(responseCode = "404", description = "Booking not found", content = @Content)
-    })
-    public ResponseEntity<Void> confirmBookingViaGet(
-            @Parameter(description = "Booking ID", required = true)
-            @PathVariable Long bookingId) {
-        bookingService.confirmBooking(bookingId);
-        return ResponseEntity.ok().build();
-    }
 }
