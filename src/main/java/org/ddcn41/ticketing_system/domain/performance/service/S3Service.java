@@ -3,6 +3,7 @@ package org.ddcn41.ticketing_system.domain.performance.service;
 import io.awspring.cloud.s3.S3Operations;
 import io.awspring.cloud.s3.S3Resource;
 import lombok.RequiredArgsConstructor;
+import org.ddcn41.ticketing_system.domain.performance.dto.request.PresignedUrlRequest;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PresignedUrlResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -29,11 +30,11 @@ public class S3Service {
     @Value("${spring.cloud.aws.s3.bucket}")
     private String bucketName;
 
-    public PresignedUrlResponse getUploadImagePresignedURL(String type) {
-        String imageKey = generateFileName(type, "performances/posters");
+    public PresignedUrlResponse getUploadImagePresignedURL(PresignedUrlRequest presignedUrlRequest) {
+        String imageKey = generateFileName(getFileExtension(presignedUrlRequest.getImageName()), "performances/posters");
 
         return PresignedUrlResponse.builder()
-                .presignedUrl(generateImageUploadPresignedUrl(imageKey, "image/"+type, 5))
+                .presignedUrl(generateImageUploadPresignedUrl(imageKey, presignedUrlRequest.getImageType(), 5))
                 .imageKey(imageKey)
                 .build();
     }
@@ -56,8 +57,8 @@ public class S3Service {
 
     public String generateDownloadPresignedUrl(String imageKey, int expirationMinutes) {
         try {
-            if (imageKey == null) {
-                return null;
+            if (imageKey.isEmpty()) {
+                return "";
             }
 
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
@@ -132,7 +133,7 @@ public class S3Service {
         if (filename == null || !filename.contains(".")) {
             return "";
         }
-        return filename.substring(filename.lastIndexOf("."));
+        return filename.substring(filename.lastIndexOf(".") + 1);
     }
 
     /**

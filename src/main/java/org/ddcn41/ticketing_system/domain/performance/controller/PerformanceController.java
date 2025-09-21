@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.dto.request.PerformanceRequestDto;
+import org.ddcn41.ticketing_system.domain.performance.dto.request.PresignedUrlRequest;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceResponse;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceSchedulesResponse;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PresignedUrlResponse;
@@ -172,8 +173,8 @@ public class PerformanceController {
 
 
     @PostMapping("/upload-url")
-    public ResponseEntity<PresignedUrlResponse> getUploadPresignedUrl(@RequestParam(required = true) String type) {
-        PresignedUrlResponse response = s3Service.getUploadImagePresignedURL(type);
+    public ResponseEntity<PresignedUrlResponse> getUploadPresignedUrl(@RequestBody PresignedUrlRequest presignedUrlRequest) {
+        PresignedUrlResponse response = s3Service.getUploadImagePresignedURL(presignedUrlRequest);
 
         return ResponseEntity.ok(response);
     }
