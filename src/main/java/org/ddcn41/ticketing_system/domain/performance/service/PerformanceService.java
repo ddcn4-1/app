@@ -2,7 +2,10 @@ package org.ddcn41.ticketing_system.domain.performance.service;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.ddcn41.ticketing_system.domain.booking.entity.Booking;
+import org.ddcn41.ticketing_system.domain.booking.repository.BookingRepository;
 import org.ddcn41.ticketing_system.domain.performance.dto.request.PerformanceRequestDto;
+import org.ddcn41.ticketing_system.domain.performance.dto.response.AdminPerformanceResponse;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceResponse;
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
@@ -13,6 +16,7 @@ import org.ddcn41.ticketing_system.domain.venue.repository.VenueRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -26,6 +30,7 @@ public class PerformanceService {
     private final PerformanceRepository performanceRepository;
     private final PerformanceScheduleRepository performanceScheduleRepository;
 
+    private final BookingRepository bookingRepository;
     private final VenueRepository venueRepository;
     private final S3Service s3ImageService;
 
@@ -38,6 +43,13 @@ public class PerformanceService {
         return performanceRepository.findAllWithVenueAndSchedules()
                 .stream()
                 .map(this::convertToPerformanceResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<AdminPerformanceResponse> getAllAdminPerformances() {
+        return performanceRepository.findAllWithVenueAndSchedules()
+                .stream()
+                .map(this::convertToAdminPerformanceResponse)
                 .collect(Collectors.toList());
     }
 
@@ -66,7 +78,7 @@ public class PerformanceService {
         return performanceScheduleRepository.findByPerformance_PerformanceIdOrderByShowDatetimeAsc(performanceId);
     }
 
-    public PerformanceResponse createPerformance(PerformanceRequestDto createPerformanceRequestDto) {
+    public AdminPerformanceResponse createPerformance(PerformanceRequestDto createPerformanceRequestDto) {
         Venue venue = venueRepository.findById(createPerformanceRequestDto.getVenueId())
                 .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ createPerformanceRequestDto.getVenueId()));
 
@@ -87,7 +99,7 @@ public class PerformanceService {
                 .build();
 
         Performance savedPerformance = performanceRepository.save(performance);
-        return convertToPerformanceResponse(savedPerformance);
+        return convertToAdminPerformanceResponse(savedPerformance);
     }
 
     public void deletePerformance(Long performanceId) {
@@ -99,7 +111,7 @@ public class PerformanceService {
         performanceRepository.delete(performance);
     }
 
-    public PerformanceResponse updatePerformance(Long performanceId, PerformanceRequestDto updatePerformanceRequestDto) {
+    public AdminPerformanceResponse updatePerformance(Long performanceId, PerformanceRequestDto updatePerformanceRequestDto) {
         Performance performance = performanceRepository.findById(performanceId)
                 .orElseThrow(()-> new EntityNotFoundException("Performance not found with id: "+performanceId));
 
@@ -125,7 +137,7 @@ public class PerformanceService {
         performance.setSchedules(updatePerformanceRequestDto.getSchedules());
 
         Performance updatedPerformance = performanceRepository.save(performance);
-        return convertToPerformanceResponse(updatedPerformance);
+        return convertToAdminPerformanceResponse(updatedPerformance);
     }
 
     /**
@@ -136,6 +148,17 @@ public class PerformanceService {
         if (performance.getPosterUrl() != null) {
             s3ImageService.deleteImage(performance.getPosterUrl());
         }
+    }
+
+    private List<Booking> getBookingsByPerformanceId(Long performanceId) {
+        return bookingRepository.findAll().
+                stream().
+                filter(
+                        book -> book.getSchedule().
+                                getPerformance().
+                                getPerformanceId().
+                                equals(performanceId))
+                .collect(Collectors.toList());
     }
 
     private PerformanceResponse convertToPerformanceResponse(Performance performance) {
@@ -164,4 +187,19 @@ public class PerformanceService {
                 .description(performance.getDescription())
                 .build();
     }
+
+    private AdminPerformanceResponse convertToAdminPerformanceResponse(Performance performance) {
+        PerformanceResponse performanceResponse = convertToPerformanceResponse(performance);
+        List<Booking> bookings =  getBookingsByPerformanceId(performanceResponse.getPerformanceId());
+
+        int totalBookings = bookings.stream().mapToInt(Booking::getSeatCount).sum();
+        BigDecimal revenue = bookings.stream().map(Booking::getTotalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return AdminPerformanceResponse.builder()
+                .performanceResponse(performanceResponse)
+                .totalBookings(totalBookings)
+                .revenue(revenue)
+                .build();
+    }
+
 }

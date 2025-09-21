@@ -68,7 +68,7 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "스케줄을 찾을 수 없습니다"));
 
         // 대기열 토큰 검증 추가 (기존 seat_map_json 로직 이전에)
-        validateQueueTokenIfRequired(req, user, schedule);
+        // validateQueueTokenIfRequired(req, user, schedule);
 
 
         // seat_map_json 파싱 (검증/가격)
