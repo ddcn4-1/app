@@ -11,6 +11,8 @@ import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.entity.PerformanceSchedule;
 import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceRepository;
 import org.ddcn41.ticketing_system.domain.performance.repository.PerformanceScheduleRepository;
+import org.ddcn41.ticketing_system.domain.seat.dto.response.InitializeSeatsResponse;
+import org.ddcn41.ticketing_system.domain.seat.service.ScheduleSeatInitializationService;
 import org.ddcn41.ticketing_system.domain.venue.entity.Venue;
 import org.ddcn41.ticketing_system.domain.venue.repository.VenueRepository;
 import org.springframework.stereotype.Service;
@@ -33,6 +35,8 @@ public class PerformanceService {
     private final BookingRepository bookingRepository;
     private final VenueRepository venueRepository;
     private final S3Service s3ImageService;
+
+    private final ScheduleSeatInitializationService initializationService;
 
     public PerformanceResponse getPerformanceById(Long performanceId){
         return convertToPerformanceResponse(performanceRepository.findById(performanceId)
@@ -82,8 +86,6 @@ public class PerformanceService {
         Venue venue = venueRepository.findById(createPerformanceRequestDto.getVenueId())
                 .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ createPerformanceRequestDto.getVenueId()));
 
-        // TODO: 공연 스케줄 처리 구현
-
         Performance performance = Performance.builder()
                 .venue(venue)
                 .title(createPerformanceRequestDto.getTitle())
@@ -95,10 +97,26 @@ public class PerformanceService {
                 .runningTime(createPerformanceRequestDto.getRunningTime())
                 .basePrice(createPerformanceRequestDto.getBasePrice())
                 .status(createPerformanceRequestDto.getStatus())
-                .schedules(createPerformanceRequestDto.getSchedules())
                 .build();
 
+        if (createPerformanceRequestDto.getSchedules() != null && !createPerformanceRequestDto.getSchedules().isEmpty()) {
+            // 각 스케줄에 performance 설정
+            for (PerformanceSchedule schedule : createPerformanceRequestDto.getSchedules()) {
+                schedule.setPerformance(performance);
+
+            }
+
+            performance.setSchedules(createPerformanceRequestDto.getSchedules());
+        }
+
         Performance savedPerformance = performanceRepository.save(performance);
+
+        if (savedPerformance.getSchedules() != null && !savedPerformance.getSchedules().isEmpty()) {
+            for (PerformanceSchedule schedule : savedPerformance.getSchedules()) {
+                initializationService.initialize(schedule.getScheduleId(), false);
+            }
+        }
+
         return convertToAdminPerformanceResponse(savedPerformance);
     }
 
@@ -134,9 +152,26 @@ public class PerformanceService {
         performance.setRunningTime(updatePerformanceRequestDto.getRunningTime());
         performance.setBasePrice(updatePerformanceRequestDto.getBasePrice());
         performance.setStatus(updatePerformanceRequestDto.getStatus());
-        performance.setSchedules(updatePerformanceRequestDto.getSchedules());
+
+        performance.getSchedules().size();
+        performance.getSchedules().clear();
+
+        if (updatePerformanceRequestDto.getSchedules() != null && !updatePerformanceRequestDto.getSchedules().isEmpty()) {
+            for (PerformanceSchedule schedule : updatePerformanceRequestDto.getSchedules()) {
+                schedule.setPerformance(performance);
+            }
+
+            performance.getSchedules().addAll(updatePerformanceRequestDto.getSchedules());
+        }
 
         Performance updatedPerformance = performanceRepository.save(performance);
+
+        if (updatedPerformance.getSchedules() != null && !updatedPerformance.getSchedules().isEmpty()) {
+            for (PerformanceSchedule schedule : updatedPerformance.getSchedules()) {
+                initializationService.initialize(schedule.getScheduleId(), false);
+            }
+        }
+
         return convertToAdminPerformanceResponse(updatedPerformance);
     }
 
