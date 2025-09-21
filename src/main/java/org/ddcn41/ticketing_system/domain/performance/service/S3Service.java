@@ -1,15 +1,20 @@
 package org.ddcn41.ticketing_system.domain.performance.service;
 
-import io.awspring.cloud.s3.ObjectMetadata;
 import io.awspring.cloud.s3.S3Operations;
 import io.awspring.cloud.s3.S3Resource;
 import lombok.RequiredArgsConstructor;
+import org.ddcn41.ticketing_system.domain.performance.dto.response.PresignedUrlResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
@@ -19,9 +24,58 @@ import java.util.UUID;
 public class S3Service {
 
     private final S3Operations s3Operations;
+    private final S3Presigner s3Presigner;
 
     @Value("${spring.cloud.aws.s3.bucket}")
     private String bucketName;
+
+    public PresignedUrlResponse getUploadImagePresignedURL(String type) {
+        String imageKey = generateFileName(type, "performances/posters");
+
+        return PresignedUrlResponse.builder()
+                .presignedUrl(generateImageUploadPresignedUrl(imageKey, "image/"+type, 5))
+                .imageKey(imageKey)
+                .build();
+    }
+
+    public String generateImageUploadPresignedUrl(String imageKey, String contentType, int expirationMinutes) {
+
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(imageKey)
+                .contentType(contentType)
+                .build();
+
+        PutObjectPresignRequest preSignedRequest = PutObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofMinutes(expirationMinutes))
+                .putObjectRequest(putObjectRequest)
+                .build();
+
+        return s3Presigner.presignPutObject(preSignedRequest).url().toString();
+    }
+
+    public String generateDownloadPresignedUrl(String imageKey, int expirationMinutes) {
+        try {
+            if (imageKey == null) {
+                return null;
+            }
+
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(imageKey)
+                    .build();
+
+            GetObjectPresignRequest getPresignRequest = GetObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofMinutes(expirationMinutes))
+                    .getObjectRequest(getObjectRequest)
+                    .build();
+
+            return s3Presigner.presignGetObject(getPresignRequest).url().toString();
+
+        } catch (Exception e) {
+            throw new RuntimeException("이미지 URL 생성에 실패했습니다." + e.toString());
+        }
+    }
 
     /**
      * 이미지를 S3에 업로드하고 URL을 반환
@@ -55,8 +109,8 @@ public class S3Service {
     public void deleteImage(String imageUrl) {
         try {
             // URL에서 키 추출
-            String key = extractKeyFromUrl(imageUrl);
-            s3Operations.deleteObject(bucketName, key);
+//            String key = extractKeyFromUrl(imageUrl);
+            s3Operations.deleteObject(bucketName, imageUrl);
         } catch (Exception e) {
         }
     }
@@ -64,12 +118,11 @@ public class S3Service {
     /**
      * 고유한 파일명 생성
      */
-    private String generateFileName(String originalFilename, String folder) {
-        String extension = getFileExtension(originalFilename);
+    private String generateFileName(String type, String folder) {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String uuid = UUID.randomUUID().toString().substring(0, 8);
 
-        return String.format("%s/%s/%s%s", folder, timestamp, uuid, extension);
+        return String.format("%s/%s/%s.%s", folder, timestamp, uuid, type);
     }
 
     /**
@@ -80,27 +133,6 @@ public class S3Service {
             return "";
         }
         return filename.substring(filename.lastIndexOf("."));
-    }
-
-    /**
-     * Pre-signed URL 생성 (보안이 중요한 경우)
-     */
-    public String generatePresignedUrl(String imageUrl, int expirationMinutes) {
-        try {
-            String key = extractKeyFromUrl(imageUrl);
-            if (key.isEmpty()) {
-                return imageUrl; // 원본 URL 반환
-            }
-
-            // Pre-signed URL 생성 (읽기 전용)
-            S3Resource resource = s3Operations.download(bucketName, key);
-            // S3Operations에서 직접 pre-signed URL을 생성하는 메서드가 없으므로
-            // 원본 URL을 그대로 반환 (버킷이 공개 설정인 경우)
-            return imageUrl;
-
-        } catch (Exception e) {
-            return imageUrl; // 실패 시 원본 URL 반환
-        }
     }
 
     /**

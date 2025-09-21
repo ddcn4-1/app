@@ -12,8 +12,10 @@ import lombok.RequiredArgsConstructor;
 import org.ddcn41.ticketing_system.domain.performance.dto.request.PerformanceRequestDto;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceResponse;
 import org.ddcn41.ticketing_system.domain.performance.dto.response.PerformanceSchedulesResponse;
+import org.ddcn41.ticketing_system.domain.performance.dto.response.PresignedUrlResponse;
 import org.ddcn41.ticketing_system.domain.performance.entity.Performance;
 import org.ddcn41.ticketing_system.domain.performance.service.PerformanceService;
+import org.ddcn41.ticketing_system.domain.performance.service.S3Service;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -30,16 +32,15 @@ import java.util.stream.Collectors;
 public class PerformanceController {
 
     private final PerformanceService performanceService;
+    private final S3Service s3Service;
+
     @Operation(summary = "모든 공연 조회", description = "클라이언트 화면에서 공연 전체 조회 시 사용")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Success get all performances", content = @Content(schema = @Schema(implementation = PerformanceResponse.class),mediaType = "application/json"))
     })
     @GetMapping
     public ResponseEntity<List<PerformanceResponse>> getAllPerformance(){
-        List<Performance> performances = performanceService.getAllPerformances();
-        List<PerformanceResponse> responses = performances.stream()
-                .map(PerformanceResponse::from)
-                .collect(Collectors.toList());
+        List<PerformanceResponse> responses = performanceService.getAllPerformances();
 
         return ResponseEntity.ok(responses);
     }
@@ -50,8 +51,8 @@ public class PerformanceController {
     })
     @GetMapping("/{performanceId}")
     public ResponseEntity<PerformanceResponse> getPerformanceById(@PathVariable long performanceId){
-        Performance performance = performanceService.getPerformanceById(performanceId);
-        return ResponseEntity.ok(PerformanceResponse.from(performance));
+        PerformanceResponse response = performanceService.getPerformanceById(performanceId);
+        return ResponseEntity.ok(response);
     }
 
     @Operation(summary = "공연 검색", description = "제목, 장소, status에 따른 공연 검색")
@@ -64,12 +65,10 @@ public class PerformanceController {
             @RequestParam(required = false, defaultValue = "") String venue,
             @RequestParam(required = false, defaultValue = "") String status) {
 
-        List<Performance> performances = performanceService.searchPerformances(name, venue, status);
-        List<PerformanceResponse> responses = performances.stream()
-                .map(PerformanceResponse::from)
-                .collect(Collectors.toList());
+        List<PerformanceResponse> responses = performanceService.searchPerformances(name, venue, status);
 
-        return ResponseEntity.ok(responses);}
+        return ResponseEntity.ok(responses);
+    }
 
     @Operation(
         summary = "공연 회차 목록", 
@@ -109,7 +108,7 @@ public class PerformanceController {
                     content = @Content(schema = @Schema(implementation = PerformanceResponse.class))),
             @ApiResponse(responseCode = "404", description = "Related resource not found", content = @Content)
     })
-    @PostMapping(consumes = "multipart/form-data")
+    @PostMapping
     public ResponseEntity<PerformanceResponse> createPerformance(
             @Parameter(
                     description = "공연 정보 (JSON 형태)",
@@ -118,22 +117,12 @@ public class PerformanceController {
                             schema = @Schema(implementation = PerformanceRequestDto.class)
                     )
             )
-            @RequestPart("performance") PerformanceRequestDto createPerformanceRequestDto,
-
-            @Parameter(
-                    description = "포스터 이미지 파일 (선택사항)",
-                    required = false,
-                    content = @Content(
-                            mediaType = "image/*",
-                            schema = @Schema(type = "string", format = "binary")
-                    )
-            )
-            @RequestPart(value = "posterImage", required=false)MultipartFile posterImage) {
-        PerformanceResponse performanceResponse = performanceService.createPerformance(createPerformanceRequestDto, posterImage);
+            @RequestBody PerformanceRequestDto createPerformanceRequestDto) {
+        PerformanceResponse performanceResponse = performanceService.createPerformance(createPerformanceRequestDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(performanceResponse);
     }
 
-    @PutMapping(value = "/{performanceId}", consumes = "multipart/form-data")
+    @PutMapping("/{performanceId}")
     @Operation(
             summary = "공연 수정",
             description = "공연 대시보드에서 기존 공연을 수정할 때 사용"
@@ -161,17 +150,8 @@ public class PerformanceController {
                             schema = @Schema(implementation = PerformanceRequestDto.class)
                     )
             )
-            @RequestPart("performance") PerformanceRequestDto updatePerformanceRequestDto,
-            @Parameter(
-                    description = "포스터 이미지 파일 (선택사항)",
-                    required = false,
-                    content = @Content(
-                            mediaType = "image/*",
-                            schema = @Schema(type = "string", format = "binary")
-                    )
-            )
-            @RequestPart(value="posterImage", required = false) MultipartFile posterImage) {
-        PerformanceResponse performanceResponse = performanceService.updatePerformance(performanceId, updatePerformanceRequestDto, posterImage);
+            @RequestBody PerformanceRequestDto updatePerformanceRequestDto) {
+        PerformanceResponse performanceResponse = performanceService.updatePerformance(performanceId, updatePerformanceRequestDto);
         return ResponseEntity.ok(performanceResponse);
     }
 
@@ -191,4 +171,10 @@ public class PerformanceController {
     }
 
 
+    @PostMapping("/upload-url")
+    public ResponseEntity<PresignedUrlResponse> getUploadPresignedUrl(@RequestParam(required = true) String type) {
+        PresignedUrlResponse response = s3Service.getUploadImagePresignedURL(type);
+
+        return ResponseEntity.ok(response);
+    }
 }

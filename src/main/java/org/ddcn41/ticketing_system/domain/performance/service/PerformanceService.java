@@ -12,9 +12,11 @@ import org.ddcn41.ticketing_system.domain.venue.entity.Venue;
 import org.ddcn41.ticketing_system.domain.venue.repository.VenueRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -27,16 +29,19 @@ public class PerformanceService {
     private final VenueRepository venueRepository;
     private final S3Service s3ImageService;
 
-    public Performance getPerformanceById(Long performanceId){
-        return performanceRepository.findById(performanceId)
-                .orElseThrow(()-> new EntityNotFoundException("Performance not found with id: "+performanceId));
+    public PerformanceResponse getPerformanceById(Long performanceId){
+        return convertToPerformanceResponse(performanceRepository.findById(performanceId)
+                .orElseThrow(()-> new EntityNotFoundException("Performance not found with id: "+performanceId)));
     }
 
-    public List<Performance> getAllPerformances() {
-        return performanceRepository.findAllWithVenueAndSchedules();
+    public List<PerformanceResponse> getAllPerformances() {
+        return performanceRepository.findAllWithVenueAndSchedules()
+                .stream()
+                .map(this::convertToPerformanceResponse)
+                .collect(Collectors.toList());
     }
 
-    public List<Performance> searchPerformances(String name, String venue, String status) {
+    public List<PerformanceResponse> searchPerformances(String name, String venue, String status) {
         Performance.PerformanceStatus performanceStatus = null;
 
         // status 문자열을 enum으로 변환
@@ -53,7 +58,7 @@ public class PerformanceService {
                 name != null && !name.trim().isEmpty() ? name : null,
                 venue != null && !venue.trim().isEmpty() ? venue : null,
                 performanceStatus
-        );
+        ).stream().map(this::convertToPerformanceResponse).collect(Collectors.toList());
     }
 
     public List<PerformanceSchedule> getPerformanceSchedules(Long performanceId) {
@@ -61,7 +66,7 @@ public class PerformanceService {
         return performanceScheduleRepository.findByPerformance_PerformanceIdOrderByShowDatetimeAsc(performanceId);
     }
 
-    public PerformanceResponse createPerformance(PerformanceRequestDto createPerformanceRequestDto, MultipartFile posterImage) {
+    public PerformanceResponse createPerformance(PerformanceRequestDto createPerformanceRequestDto) {
         Venue venue = venueRepository.findById(createPerformanceRequestDto.getVenueId())
                 .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ createPerformanceRequestDto.getVenueId()));
 
@@ -72,6 +77,7 @@ public class PerformanceService {
                 .title(createPerformanceRequestDto.getTitle())
                 .description(createPerformanceRequestDto.getDescription())
                 .theme(createPerformanceRequestDto.getTheme())
+                .posterUrl(createPerformanceRequestDto.getPosterUrl())
                 .startDate(createPerformanceRequestDto.getStartDate())
                 .endDate(createPerformanceRequestDto.getEndDate())
                 .runningTime(createPerformanceRequestDto.getRunningTime())
@@ -80,25 +86,31 @@ public class PerformanceService {
                 .schedules(createPerformanceRequestDto.getSchedules())
                 .build();
 
-        handleImageUploads(performance, posterImage);
-
         Performance savedPerformance = performanceRepository.save(performance);
-        return PerformanceResponse.from(savedPerformance);
+        return convertToPerformanceResponse(savedPerformance);
     }
 
     public void deletePerformance(Long performanceId) {
-        Performance performance = getPerformanceById(performanceId);
+        Performance performance = performanceRepository.findById(performanceId)
+                .orElseThrow(()-> new EntityNotFoundException("Performance not found with id: "+performanceId));
 
         deleteExistingImages(performance);
 
         performanceRepository.delete(performance);
     }
 
-    public PerformanceResponse updatePerformance(Long performanceId, PerformanceRequestDto updatePerformanceRequestDto, MultipartFile posterImage) {
-        Performance performance = getPerformanceById(performanceId);
+    public PerformanceResponse updatePerformance(Long performanceId, PerformanceRequestDto updatePerformanceRequestDto) {
+        Performance performance = performanceRepository.findById(performanceId)
+                .orElseThrow(()-> new EntityNotFoundException("Performance not found with id: "+performanceId));
 
         Venue venue = venueRepository.findById(updatePerformanceRequestDto.getVenueId())
                 .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ updatePerformanceRequestDto.getVenueId()));
+
+        // 기존 이미지 삭제
+        if (performance.getPosterUrl() != null &&
+                !Objects.equals(performance.getPosterUrl(), updatePerformanceRequestDto.getPosterUrl())) {
+            deleteExistingImages(performance);
+        }
 
         performance.setVenue(venue);
         performance.setTitle(updatePerformanceRequestDto.getTitle());
@@ -112,30 +124,8 @@ public class PerformanceService {
         performance.setStatus(updatePerformanceRequestDto.getStatus());
         performance.setSchedules(updatePerformanceRequestDto.getSchedules());
 
-        // 새 이미지가 있다면 기존 이미지 삭제 후 새 이미지 업로드
-        if (posterImage != null && !posterImage.isEmpty()) {
-            deleteExistingImages(performance);
-            handleImageUploads(performance, posterImage);
-        }
-
         Performance updatedPerformance = performanceRepository.save(performance);
-        return PerformanceResponse.from(updatedPerformance);
-    }
-
-    /**
-     * 이미지 업로드 처리
-     */
-    private void handleImageUploads(Performance performance,
-                                    MultipartFile posterImage) {
-        if (posterImage != null && !posterImage.isEmpty()) {
-            try {
-                String posterImageUrl = s3ImageService.uploadImage(posterImage, "performances/posters");
-                performance.setPosterUrl(posterImageUrl);
-            } catch (Exception e) {
-                performance.setPosterUrl(null);
-                // 필요에 따라 예외를 던지거나 기본값 설정
-            }
-        }
+        return convertToPerformanceResponse(updatedPerformance);
     }
 
     /**
@@ -146,5 +136,32 @@ public class PerformanceService {
         if (performance.getPosterUrl() != null) {
             s3ImageService.deleteImage(performance.getPosterUrl());
         }
+    }
+
+    private PerformanceResponse convertToPerformanceResponse(Performance performance) {
+        List<PerformanceResponse.ScheduleResponse> scheduleResponses = performance.getSchedules() != null
+                ? performance.getSchedules().stream()
+                .map(PerformanceResponse.ScheduleResponse::from)
+                .collect(Collectors.toList())
+                : new ArrayList<>();
+
+        String posterImageUrl = s3ImageService.generateDownloadPresignedUrl(performance.getPosterUrl(), 3);
+
+        return PerformanceResponse.builder()
+                .performanceId(performance.getPerformanceId())
+                .title(performance.getTitle())
+                .venue(performance.getVenue().getVenueName())
+                .theme(performance.getTheme())
+                .posterUrl(posterImageUrl)
+                .price(performance.getBasePrice())
+                .status(performance.getStatus())
+                .startDate(performance.getStartDate().toString())
+                .endDate(performance.getEndDate().toString())
+                .runningTime(performance.getRunningTime())
+                .venueAddress(performance.getVenue().getAddress())
+                .venueId(performance.getVenue().getVenueId())
+                .schedules(scheduleResponses)
+                .description(performance.getDescription())
+                .build();
     }
 }
