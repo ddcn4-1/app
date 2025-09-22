@@ -197,10 +197,10 @@ public class BookingService {
                     schedule.getPerformance().getPerformanceId()
             );
 
-            if (!isValidToken) {
-                throw new ResponseStatusException(BAD_REQUEST,
-                        "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 다른 공연의 토큰입니다. 대기열을 통해 다시 시도해주세요.");
-            }
+           if (!isValidToken) {
+               throw new ResponseStatusException(BAD_REQUEST,
+                       "유효하지 않은 대기열 토큰입니다. 토큰이 만료되었거나 다른 공연의 토큰입니다. 대기열을 통해 다시 시도해주세요.");
+           }
 
             // 토큰 유효성 재확인 (동시성 이슈 대응)
             try {
