@@ -1,5 +1,6 @@
 package org.ddcn41.ticketing_system.domain.queue.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -47,7 +48,7 @@ public class QueueController {
 
 
     /**
-     * 대기열 필요성 확인 (오버부킹 적용)
+     * 대기열 필요성 확인
      */
     @PostMapping("/check")
     @Operation(summary = "대기열 필요성 확인", description = "예매 시도 시 대기열이 필요한지 확인합니다. (오버부킹 적용)")
@@ -279,7 +280,10 @@ public class QueueController {
      * 페이지 언로드 시 Beacon으로만 호출되는 엔드포인트
      */
 //    @CrossOrigin(origins = "*") // 모든 origin 허용
-    @PostMapping("/release-session")
+    @PostMapping(
+            value = "/release-session",
+            consumes = {"application/json", "text/plain", "*/*"}  // 모든 Content-Type 허용
+    )
     @Operation(summary = "Beacon 세션 해제", description = "Beacon API를 통한 세션 해제 (인증 불필요)")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -290,16 +294,21 @@ public class QueueController {
                     description = "잘못된 요청")
     })
     public ResponseEntity<ApiResponse<String>> releaseSessionBeacon(
-            @RequestBody(required = false) Map<String, Object> request,
+            @RequestBody(required = false) String requestBody,
             HttpServletRequest httpRequest) {
+
         System.out.println("=== releaseSessionBeacon 호출됨 ===");
-        System.out.println("Request: " + request);
+        System.out.println("Request Body: " + requestBody);
+
         try {
-            // Beacon 요청에서는 JSON 파싱이 제한적일 수 있으므로 안전하게 처리
-            if (request != null) {
+            if (requestBody != null && !requestBody.isEmpty()) {
+                // JSON 파싱
+                ObjectMapper mapper = new ObjectMapper();
+                Map<String, Object> request = mapper.readValue(requestBody, Map.class);
+
                 Object performanceIdObj = request.get("performanceId");
                 Object scheduleIdObj = request.get("scheduleId");
-                Object userIdObj = request.get("userId"); // 클라이언트에서 추가로 전송
+                Object userIdObj = request.get("userId");
 
                 if (performanceIdObj != null && scheduleIdObj != null && userIdObj != null) {
                     Long performanceId = Long.valueOf(performanceIdObj.toString());
@@ -307,19 +316,12 @@ public class QueueController {
                     Long userId = Long.valueOf(userIdObj.toString());
 
                     queueService.releaseSession(userId, performanceId, scheduleId);
-//                    log.info("Beacon으로 세션 해제 - userId: {}, performanceId: {}", userId, performanceId);
                 }
             }
 
-            return ResponseEntity.ok(
-                    ApiResponse.success("Beacon 세션 해제 처리됨")
-            );
+            return ResponseEntity.ok(ApiResponse.success("Beacon 세션 해제 처리됨"));
         } catch (Exception e) {
-//            log.warn("Beacon 세션 해제 오류: {}", e.getMessage());
-            // Beacon의 특성상 에러가 발생해도 200을 반환
-            return ResponseEntity.ok(
-                    ApiResponse.success("Beacon 세션 해제 시도됨")
-            );
+            return ResponseEntity.ok(ApiResponse.success("Beacon 세션 해제 시도됨"));
         }
     }
 
