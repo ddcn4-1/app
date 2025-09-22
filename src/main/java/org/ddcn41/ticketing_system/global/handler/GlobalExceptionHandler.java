@@ -10,6 +10,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -31,6 +32,23 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity.badRequest().body(response);
     }
+    // ResponseStatusException 처리
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<?>> handleResponseStatusException(
+            ResponseStatusException ex) {
+
+        HttpStatus status = (HttpStatus) ex.getStatusCode();
+        String message = ex.getReason() != null ? ex.getReason() : status.getReasonPhrase();
+
+        ApiResponse<?> response = ApiResponse.error(
+                message,
+                null,
+                null
+        );
+
+        return ResponseEntity.status(status).body(response);
+    }
+
 
     private String getCurrentUsername(HttpServletRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
