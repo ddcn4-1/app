@@ -29,7 +29,7 @@ public class GetBookingDetail200ResponseDto {
     private Integer seatCount;
     private Double totalAmount;
 
-    public enum StatusEnum { PENDING, CONFIRMED, CANCELLED }
+    public enum StatusEnum { CONFIRMED, CANCELLED }
     private StatusEnum status;
 
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
