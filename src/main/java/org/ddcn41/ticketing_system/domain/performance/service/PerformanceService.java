@@ -137,31 +137,30 @@ public class PerformanceService {
                 .orElseThrow(() -> new EntityNotFoundException("venue not found with id: "+ updatePerformanceRequestDto.getVenueId()));
 
         // 기존 이미지 삭제
-        if (performance.getPosterUrl() != null &&
+        if (performance.getPosterUrl() != null && !updatePerformanceRequestDto.getPosterUrl().isEmpty() &&
                 !Objects.equals(performance.getPosterUrl(), updatePerformanceRequestDto.getPosterUrl())) {
             deleteExistingImages(performance);
+
+            performance.setPosterUrl(updatePerformanceRequestDto.getPosterUrl());
         }
 
         performance.setVenue(venue);
         performance.setTitle(updatePerformanceRequestDto.getTitle());
         performance.setDescription(updatePerformanceRequestDto.getDescription());
         performance.setTheme(updatePerformanceRequestDto.getTheme());
-        performance.setPosterUrl(updatePerformanceRequestDto.getPosterUrl());
         performance.setStartDate(updatePerformanceRequestDto.getStartDate());
         performance.setEndDate(updatePerformanceRequestDto.getEndDate());
         performance.setRunningTime(updatePerformanceRequestDto.getRunningTime());
         performance.setBasePrice(updatePerformanceRequestDto.getBasePrice());
         performance.setStatus(updatePerformanceRequestDto.getStatus());
 
-        performance.getSchedules().size();
-        performance.getSchedules().clear();
 
         if (updatePerformanceRequestDto.getSchedules() != null && !updatePerformanceRequestDto.getSchedules().isEmpty()) {
             for (PerformanceSchedule schedule : updatePerformanceRequestDto.getSchedules()) {
                 schedule.setPerformance(performance);
             }
 
-            performance.getSchedules().addAll(updatePerformanceRequestDto.getSchedules());
+            performance.setSchedules(updatePerformanceRequestDto.getSchedules());
         }
 
         Performance updatedPerformance = performanceRepository.save(performance);

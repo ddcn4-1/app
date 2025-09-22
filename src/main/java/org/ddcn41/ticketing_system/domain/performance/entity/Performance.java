@@ -71,7 +71,7 @@ public class Performance {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "performance", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "performance", cascade = CascadeType.ALL)
     @Builder.Default
     private List<PerformanceSchedule> schedules = new ArrayList<>();
 
