@@ -69,12 +69,10 @@ jobs:
           # Docker 빌드
           echo "Docker 이미지 빌드 중..."
           docker build -t $IMAGE_URI .
-          docker tag $IMAGE_URI ${ECR_REGISTRY}/${ECR_REPOSITORY}:v1.2.0
           
           # ECR에 푸시
           echo "ECR에 푸시 중..."
           docker push $IMAGE_URI
-          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:v1.2.0
           
           # 출력 변수 설정
           echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
