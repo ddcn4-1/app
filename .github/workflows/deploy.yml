@@ -1,0 +1,508 @@
+name: deploy.yml
+on:
+  push:
+    branches:
+      - feat/asg-cli
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: '테스트용 강제 배포'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: code_checkout
+        uses: actions/checkout@v4
+
+      - name: JDK_21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      - name: Gradle Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: application_build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean build -x test
+          echo "빌드 완료"
+
+      - name: AWS Authentication
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECR login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Docker Image Build and Push
+        id: build-image
+        run: |
+          # 고유한 이미지 태그 생성
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          SHORT_SHA=${GITHUB_SHA::8}
+          IMAGE_TAG="v${TIMESTAMP}-${SHORT_SHA}"
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          
+          echo "이미지 태그: $IMAGE_TAG"
+          
+          # Docker 빌드
+          echo "Docker 이미지 빌드 중..."
+          docker build -t $IMAGE_URI .
+          docker tag $IMAGE_URI ${ECR_REGISTRY}/${ECR_REPOSITORY}:v1.2.0
+          
+          # ECR에 푸시
+          echo "ECR에 푸시 중..."
+          docker push $IMAGE_URI
+          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:v1.2.0
+          
+          # 출력 변수 설정
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image-uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          
+          echo "이미지 푸시 완료: $IMAGE_TAG"
+
+      - name: Launch Template Update
+        id: update-template
+        run: |
+          echo "Launch Template 새 버전 생성 중..."
+          
+          # User Data 스크립트 생성 (한국어 주석 포함)
+          cat > user-data.sh << 'EOF'
+          #!/bin/bash
+          exec > /var/log/user-data.log 2>&1
+          echo "=== GitHub Actions 자동 배포 시작: $(date) ==="
+          
+          # 배포 정보 출력
+          echo "이미지 태그: ${{ steps.build-image.outputs.image-tag }}"
+          echo "배포자: ${{ github.actor }}"
+          echo "커밋: ${{ github.sha }}"
+          echo "배포 시간: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
+          # 인스턴스 정보
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          INSTANCE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+          echo "🖥️ 인스턴스: $INSTANCE_ID ($INSTANCE_IP)"
+          
+          # 1단계: 시스템 준비
+          echo "시스템 업데이트 및 패키지 설치..."
+          yum update -y
+          yum install -y docker aws-cli jq curl htop
+          
+          # 2단계: Docker 설정
+          echo "Docker 서비스 시작..."
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # 3단계: ECR 로그인
+          echo "ECR 로그인..."
+          for i in {1..3}; do
+            if aws ecr get-login-password --region ap-northeast-2 | \
+               docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}; then
+              echo "ECR 로그인 성공"
+              break
+            else
+              echo "ECR 로그인 실패, 재시도 중... ($i/3)"
+              sleep 10
+            fi
+          done
+          
+          # 4단계: 환경변수 설정
+          echo "애플리케이션 환경변수 설정..."
+          cat > /home/ec2-user/.env << 'ENVEOF'
+          # 애플리케이션 설정
+          SPRING_PROFILES_ACTIVE=${{secrets.SPRING_PROFILES_ACTIVE}}
+          
+          #데이터베이스 설정
+          DATABASE_URL=jdbc:postgresql://${{ secrets.REDIS_HOST }}:5432/${{ secrets.DB_NAME }}
+          DATABASE_USERNAME=${{ secrets.DATABASE_USERNAME }}
+          DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}
+          
+          #Redis 설정
+          REDIS_HOST=${{ secrets.REDIS_HOST }}
+          REDIS_PORT=6379
+          
+          #AWS 설정
+          AWS_LAMBDA_ASG_SCALER_FUNCTION_NAME=${{ secrets.AWS_LAMBDA_ASG_SCALER_FUNCTION_NAME }}
+          AWS_REGION=${{secrets.AWS_REGION}}
+          AWS_S3_ACCESS_KEY=${{secrets.AWS_S3_ACCESS_KEY}}
+          AWS_S3_SECRET_KEY=${{secrets.AWS_S3_SECRET_KEY}}
+          
+          
+          # 배포 정보
+          SERVER_IDENTIFIER=GITHUB-ACTIONS
+          SERVER_IP=$INSTANCE_IP
+          DEPLOYMENT_TAG=${{ steps.build-image.outputs.image-tag }}
+          GITHUB_SHA=${{ github.sha }}
+          GITHUB_ACTOR=${{ github.actor }}
+          GITHUB_REPOSITORY=${{ github.repository }}
+          DEPLOY_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          ENVEOF
+          
+          # 파일 권한 설정
+          chown ec2-user:ec2-user /home/ec2-user/.env
+          chmod 600 /home/ec2-user/.env
+          
+          # 5단계: 기존 컨테이너 정리
+          echo "기존 컨테이너 정리..."
+          docker stop ddcn41-backend-prod 2>/dev/null || echo "기존 컨테이너 없음"
+          docker rm ddcn41-backend-prod 2>/dev/null || echo "삭제할 컨테이너 없음"
+          
+          # 6단계: 새 이미지 다운로드
+          echo "새 이미지 다운로드..."
+          docker pull ${{ steps.build-image.outputs.image-uri }}
+          
+          # 7단계: 새 컨테이너 시작
+          echo "새 컨테이너 시작..."
+          docker run -d \
+            --name ddcn41-backend-prod \
+            -p 8080:8080 \
+            --env-file /home/ec2-user/.env \
+            --restart unless-stopped \
+            --health-start-period=60s \
+            --log-opt max-size=50m \
+            --health-cmd="curl -f http://localhost:8080/actuator/health || exit 1" \
+            ${{ steps.build-image.outputs.image-uri }}
+          
+          # 8단계: 컨테이너 시작 확인
+          echo "컨테이너 시작 확인..."
+          sleep 20
+          if docker ps | grep ddcn41-backend-prod; then
+            echo "컨테이너 정상 시작"
+            docker logs ddcn41-backend-prod --tail 10
+          else
+            echo "컨테이너 시작 실패"
+            docker logs ddcn41-backend-prod
+            exit 1
+          fi
+          
+          # 9단계: 애플리케이션 헬스체크
+          echo "애플리케이션 헬스체크..."
+          HEALTH_CHECK_COUNT=0
+          MAX_ATTEMPTS=30
+          
+          while [ $HEALTH_CHECK_COUNT -lt $MAX_ATTEMPTS ]; do
+            sleep 10
+            ((HEALTH_CHECK_COUNT++))
+          
+            echo "헬스체크 시도 $HEALTH_CHECK_COUNT/$MAX_ATTEMPTS..."
+          
+            if curl -f -s http://localhost:8080/actuator/health > /tmp/health.json; then
+              HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.status // "UNKNOWN"')
+          
+              if [ "$HEALTH_STATUS" = "UP" ]; then
+                echo "애플리케이션 헬스체크 성공"
+                echo "헬스 상태:"
+                cat /tmp/health.json | jq '.'
+                break
+              else
+                echo "헬스 상태: $HEALTH_STATUS"
+              fi
+            else
+              echo "애플리케이션 준비 중..."
+            fi
+          
+            if [ $HEALTH_CHECK_COUNT -eq $MAX_ATTEMPTS ]; then
+              echo "헬스체크 최종 실패"
+              echo "컨테이너 로그:"
+              docker logs ddcn41-backend-prod --tail 30
+              exit 1
+            fi
+          done
+          
+          # 10단계: 최종 검증
+          echo "최종 검증..."
+          
+          # Docker 상태 확인
+          echo "Docker 컨테이너 상태:"
+          docker ps --filter name=ddcn41-backend-prod --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+          
+          # 메모리 사용량 확인
+          echo "시스템 리소스:"
+          free -h
+          df -h /
+          
+          echo "=== GitHub Actions 자동 배포 완료: $(date) ==="
+          EOF
+          
+          # User Data Base64 인코딩
+          USER_DATA_BASE64=$(base64 -w 0 user-data.sh)
+          
+          # Launch Template 새 버전 생성
+          echo "Launch Template 새 버전 생성..."
+          NEW_VERSION=$(aws ec2 create-launch-template-version \
+            --launch-template-name ${{ secrets.LAUNCH_TEMPLATE_NAME }} \
+            --source-version '$Latest' \
+            --launch-template-data "{
+              \"UserData\": \"$USER_DATA_BASE64\",
+              \"TagSpecifications\": [{
+                \"ResourceType\": \"instance\",
+                \"Tags\": [
+                  {\"Key\": \"Name\", \"Value\": \"ddcn41-backend-asg\"},
+                  {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.build-image.outputs.image-tag }}\"},
+                  {\"Key\": \"GitCommit\", \"Value\": \"${{ github.sha }}\"},
+                  {\"Key\": \"GitActor\", \"Value\": \"${{ github.actor }}\"},
+                  {\"Key\": \"DeployTime\", \"Value\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"},
+                  {\"Key\": \"DeployMethod\", \"Value\": \"GitHub-Actions\"},
+                  {\"Key\": \"Repository\", \"Value\": \"${{ github.repository }}\"}
+                ]
+              }]
+            }" \
+            --query 'LaunchTemplateVersion.VersionNumber' \
+            --output text)
+          
+          echo "template-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Launch Template 버전 $NEW_VERSION 생성 완료"
+
+      - name: 무중단 Rolling 배포 시작
+        id: rolling-deploy
+        run: |
+          echo "무중단 Rolling 배포 시작..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # 배포 전 상태 확인
+          echo "배포 전 ASG 상태:"
+          aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+            --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}'
+          
+          # Instance Refresh 시작
+          echo "Instance Refresh 시작..."
+          REFRESH_ID=$(aws autoscaling start-instance-refresh \
+            --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
+            --preferences '{
+              "InstanceWarmup": 300,
+              "MinHealthyPercentage": 50,
+              "MaxHealthyPercentage": 200,
+              "CheckpointPercentages": [25, 50, 75, 100],
+              "CheckpointDelay": 300,
+              "ScaleInProtectedInstances": "Ignore"
+            }' \
+            --query 'InstanceRefreshId' \
+            --output text)
+          
+          echo "Instance Refresh ID: $REFRESH_ID"
+          echo "refresh-id=$REFRESH_ID" >> $GITHUB_OUTPUT
+          
+          # 배포 진행 상황 모니터링
+          echo "배포 진행 상황 실시간 모니터링..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          MONITOR_COUNT=0
+          MAX_WAIT_TIME=90  # 45분 (30초 * 90회)
+          
+          while [ $MONITOR_COUNT -lt $MAX_WAIT_TIME ]; do
+            ((MONITOR_COUNT++))
+          
+            # Instance Refresh 상태 조회
+            REFRESH_INFO=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
+              --instance-refresh-ids $REFRESH_ID \
+              --query 'InstanceRefreshes[0]')
+          
+            STATUS=$(echo "$REFRESH_INFO" | jq -r '.Status')
+            PERCENTAGE=$(echo "$REFRESH_INFO" | jq -r '.PercentageComplete // 0')
+          
+            # 진행률 바 생성
+            PROGRESS_BAR=""
+            FILLED=$((PERCENTAGE / 5))
+            for ((i=1; i<=20; i++)); do
+              if [ $i -le $FILLED ]; then
+                PROGRESS_BAR+="█"
+              else
+                PROGRESS_BAR+="░"
+              fi
+            done
+          
+            echo "[$MONITOR_COUNT/$MAX_WAIT_TIME] 🔄 $STATUS [$PROGRESS_BAR] $PERCENTAGE%"
+          
+            # 상태별 처리
+            case $STATUS in
+              "Successful")
+                echo "Rolling 배포 성공!"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+                # 최종 상태 출력
+                echo "배포 완료 후 ASG 상태:"
+                aws autoscaling describe-auto-scaling-groups \
+                  --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+                  --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus,LaunchTime:LaunchTime}}'
+          
+                exit 0
+                ;;
+              "Failed"|"Cancelled")
+                echo "Rolling 배포 실패: $STATUS"
+                echo "실패 이유:"
+                echo "$REFRESH_INFO" | jq -r '.StatusReason // "상세 정보 없음"'
+          
+                # 실패한 인스턴스 정보 출력
+                echo "현재 인스턴스 상태:"
+                aws autoscaling describe-auto-scaling-groups \
+                  --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+                  --query 'AutoScalingGroups[0].Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}'
+          
+                exit 1
+                ;;
+              "InProgress"|"Pending")
+                # 체크포인트 정보가 있다면 출력
+                CHECKPOINTS=$(echo "$REFRESH_INFO" | jq -r '.Checkpoints // []')
+                if [ "$CHECKPOINTS" != "[]" ]; then
+                  echo "체크포인트 진행 상황:"
+                  echo "$CHECKPOINTS" | jq -r '.[] | "  \(.Percentage)%: \(.Status)"'
+                fi
+                ;;
+              *)
+                echo "배포 준비 중... ($STATUS)"
+                ;;
+            esac
+          
+            sleep 30
+          done
+          
+          echo "배포 시간 초과 (45분)"
+          echo "현재 상태: $STATUS ($PERCENTAGE%)"
+          exit 1
+
+      - name: 배포 검증 및 최종 확인
+        run: |
+          echo "배포 검증 시작..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # 1. 새 인스턴스 정보 확인
+          echo "배포된 인스턴스 정보:"
+          INSTANCE_INFO=$(aws autoscaling describe-auto-scaling-instances \
+            --query 'AutoScalingInstances[?AutoScalingGroupName==`${{ secrets.ASG_NAME }}`] | [0]')
+          
+          if [ "$INSTANCE_INFO" = "null" ]; then
+            echo "ASG에서 인스턴스를 찾을 수 없습니다"
+            exit 1
+          fi
+          
+          INSTANCE_ID=$(echo "$INSTANCE_INFO" | jq -r '.InstanceId')
+          
+          INSTANCE_DETAILS=$(aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --query 'Reservations[0].Instances[0]')
+          
+          INSTANCE_IP=$(echo "$INSTANCE_DETAILS" | jq -r '.PrivateIpAddress')
+          LAUNCH_TIME=$(echo "$INSTANCE_DETAILS" | jq -r '.LaunchTime')
+          IMAGE_ID=$(echo "$INSTANCE_DETAILS" | jq -r '.ImageId')
+          
+          echo "  Instance ID: $INSTANCE_ID"
+          echo "  Private IP: $INSTANCE_IP"  
+          echo "  시작 시간: $LAUNCH_TIME"
+          echo "  AMI ID: $IMAGE_ID"
+          echo "  이미지 태그: ${{ steps.build-image.outputs.image-tag }}"
+          echo "  커밋: ${{ github.sha }}"
+          
+          # 2. 인스턴스 태그 확인
+          echo ""
+          echo "인스턴스 태그:"
+          aws ec2 describe-tags \
+            --filters "Name=resource-id,Values=$INSTANCE_ID" \
+            --query 'Tags[].[Key,Value]' \
+            --output table
+          
+          # 3. 애플리케이션 응답 검증
+          echo ""
+          echo "애플리케이션 응답 검증..."
+          
+          # CloudFront 캐시 무효화를 위한 대기
+          echo "CloudFront 캐시 및 DNS 전파 대기 (60초)..."
+          sleep 60
+          
+          # 헬스체크 검증
+          HEALTH_ATTEMPTS=0
+          MAX_HEALTH_ATTEMPTS=10
+          
+          while [ $HEALTH_ATTEMPTS -lt $MAX_HEALTH_ATTEMPTS ]; do
+            ((HEALTH_ATTEMPTS++))
+            echo "헬스체크 시도 $HEALTH_ATTEMPTS/$MAX_HEALTH_ATTEMPTS..."
+          
+            HEALTH_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" https://ddcn41.com/api/actuator/health || echo "FAILED")
+          
+            if echo "$HEALTH_RESPONSE" | grep -q "HTTPSTATUS:200"; then
+              HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | sed -E 's/HTTPSTATUS:[0-9]{3}$//')
+              echo "헬스체크 성공!"
+              echo "$HEALTH_BODY" | jq '.' || echo "$HEALTH_BODY"
+              break
+            else
+              echo "헬스체크 실패: $HEALTH_RESPONSE"
+              if [ $HEALTH_ATTEMPTS -eq $MAX_HEALTH_ATTEMPTS ]; then
+                echo "최종 헬스체크 실패"
+                exit 1
+              fi
+              echo "30초 후 재시도..."
+              sleep 30
+            fi
+          done
+          
+          # 4. 시스템 정보 확인 (선택사항 - 인증이 필요할 수 있음)
+          echo ""
+          echo "시스템 정보 확인 시도..."
+          SYSTEM_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" https://ddcn41.com/api/admin/system-info || echo "FAILED")
+          
+          if echo "$SYSTEM_RESPONSE" | grep -q "HTTPSTATUS:200"; then
+            SYSTEM_BODY=$(echo "$SYSTEM_RESPONSE" | sed -E 's/HTTPSTATUS:[0-9]{3}$//')
+            echo "시스템 정보:"
+            echo "$SYSTEM_BODY" | jq '.' || echo "$SYSTEM_BODY"
+          else
+            echo "⚠시스템 정보 조회 실패 (권한 필요 또는 미구현): $SYSTEM_RESPONSE"
+          fi
+          
+          # 5. 최종 성공 메시지
+          echo ""
+          echo "배포 검증 완료"
+
+      - name: 🎉 배포 성공 알림
+        if: success()
+        run: |
+          echo ""
+          echo "         ddcn41 Backend 배포 성공"
+          echo ""
+          echo "배포 요약:"
+          echo "  이미지 태그: ${{ steps.build-image.outputs.image-tag }}"
+          echo "  Refresh ID: ${{ steps.rolling-deploy.outputs.refresh-id }}"
+          echo "  배포자: ${{ github.actor }}"
+          echo "  배포 시간: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "  커밋: https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          echo ""
+
+      - name: 💥 배포 실패 처리
+        if: failure()
+        run: |
+          echo ""
+          echo "         ddcn41 Backend 배포 실패"
+          echo ""
+          echo "실패 정보:"
+          echo "시도자: ${{ github.actor }}"
+          echo "시도 시간: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "커밋: https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          echo ""
+          
+          # ASG 상태 확인
+          echo "현재 ASG 상태:"
+          aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+            --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}' || echo "ASG 상태 조회 실패"
