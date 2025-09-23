@@ -475,7 +475,7 @@ jobs:
           echo ""
           echo "배포 검증 완료"
 
-      - name: 🎉 배포 성공 알림
+      - name: 배포 성공 알림
         if: success()
         run: |
           echo ""
@@ -489,7 +489,7 @@ jobs:
           echo "  커밋: https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
           echo ""
 
-      - name: 💥 배포 실패 처리
+      - name: 배포 실패 처리
         if: failure()
         run: |
           echo ""
