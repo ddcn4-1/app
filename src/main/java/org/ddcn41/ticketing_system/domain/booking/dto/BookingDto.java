@@ -27,7 +27,7 @@ public class BookingDto {
     private Double totalAmount;
     private List<BookingSeatDto> seats;
 
-    public enum StatusEnum { PENDING, CONFIRMED, CANCELLED }
+    public enum StatusEnum { CONFIRMED, CANCELLED }
     private StatusEnum status;
 
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
