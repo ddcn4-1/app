@@ -5,6 +5,8 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
+gradle/wrapper/gradle-wrapper.properties.lock
+
 # Java 컴파일 파일
 *.class
 *.jar
@@ -38,24 +40,23 @@ desktop.ini
 ## Linux
 *~
 
-# 로그 파일
+# 로그 파일 맟
 logs/
 *.log
 log/
-
-# 임시 파일
 *.tmp
 *.temp
 *.swp
 *.swo
-*~
+*.pid
+*.seed
+*.pid.lock
 
 # Spring Boot 관련
 application-local.yml
 application-local.properties
 application-dev.yml
 application-dev.properties
-application-prod.yml
 application-prod.properties
 application.yml
 application.properties
