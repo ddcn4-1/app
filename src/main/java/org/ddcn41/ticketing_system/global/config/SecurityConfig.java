@@ -107,6 +107,8 @@ public class SecurityConfig {
                         // 공연장 조회/좌석맵 조회 API (GET만 허용)
                         .requestMatchers(HttpMethod.GET, "/api/venues/**").permitAll()
 
+                        .requestMatchers("/api/aws/**").hasRole("ADMIN")
+
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()
 
@@ -123,7 +125,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
+        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000","https://ddcn41.com", "https://api.ddcn41.com"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
