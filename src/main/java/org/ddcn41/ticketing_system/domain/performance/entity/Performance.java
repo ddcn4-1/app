@@ -12,6 +12,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -71,7 +72,8 @@ public class Performance {
     private LocalDateTime updatedAt;
 
     @OneToMany(mappedBy = "performance", cascade = CascadeType.ALL)
-    private List<PerformanceSchedule> schedules;
+    @Builder.Default
+    private List<PerformanceSchedule> schedules = new ArrayList<>();
 
     public enum PerformanceStatus {
         UPCOMING, ONGOING, ENDED, CANCELLED

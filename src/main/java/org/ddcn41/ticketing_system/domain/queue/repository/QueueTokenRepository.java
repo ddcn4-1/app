@@ -63,6 +63,15 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     Long countActiveTokensByPerformance(@Param("performance") Performance performance);
 
     /**
+     * 특정 공연의 활성 토큰 수 조회  ID로 조회
+     */
+    @Query("SELECT COUNT(qt) FROM QueueToken qt WHERE qt.performance.performanceId = :performanceId AND qt.status = 'ACTIVE'")
+    Long countActiveTokensByPerformanceId(@Param("performanceId") Long performanceId);
+
+    @Query("SELECT qt FROM QueueToken qt JOIN FETCH qt.performance WHERE qt.token = :token")
+    Optional<QueueToken> findByTokenWithPerformance(@Param("token") String token);
+
+    /**
      * 특정 공연의 대기 중인 토큰 수 조회
      */
     @Query("SELECT COUNT(qt) FROM QueueToken qt WHERE qt.performance = :performance AND qt.status = 'WAITING'")
@@ -101,4 +110,6 @@ public interface QueueTokenRepository extends JpaRepository<QueueToken, Long> {
     @Query("SELECT qt FROM QueueToken qt WHERE qt.performance = :performance AND qt.status = 'WAITING' " +
             "ORDER BY qt.issuedAt ASC")
     List<QueueToken> findWaitingTokensByPerformanceOrderByIssuedAt(@Param("performance") Performance performance);
+
+
 }
