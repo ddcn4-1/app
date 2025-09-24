@@ -292,7 +292,7 @@ jobs:
             --preferences '{
               "InstanceWarmup": 300,
               "MinHealthyPercentage": 50,
-              "MaxHealthyPercentage": 200,
+              "MaxHealthyPercentage": 150,
               "CheckpointPercentages": [25, 50, 75, 100],
               "CheckpointDelay": 300,
               "ScaleInProtectedInstances": "Ignore"
