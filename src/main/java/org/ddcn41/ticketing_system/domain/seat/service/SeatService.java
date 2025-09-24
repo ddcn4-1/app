@@ -280,7 +280,7 @@ public class SeatService {
         if (scheduleIdForCounter != null && restored > 0) {
             int affected = scheduleRepository.incrementAvailableSeats(scheduleIdForCounter, restored);
             if (affected == 0) {
-                throw new RuntimeException("좌석 복원 중 스케줄 가용 좌석 업데이트 실패");
+                System.err.println("Warning: 좌석 복원 중 가용 좌석 수가 이미 최대치에 도달했습니다. scheduleId=" + scheduleIdForCounter + ", restored=" + restored);
             }
             scheduleRepository.refreshScheduleStatus(scheduleIdForCounter);
         }
@@ -442,7 +442,7 @@ public class SeatService {
                 Long scheduleId = seat.getSchedule().getScheduleId();
                 int affected = scheduleRepository.incrementAvailableSeats(scheduleId, 1);
                 if (affected == 0) {
-                    throw new RuntimeException("좌석 해제 중 스케줄 가용 좌석 업데이트 실패");
+                    System.err.println("Warning: 좌석 해제 중 가용 좌석 수가 이미 최대치에 도달했습니다. scheduleId=" + scheduleId + ", seatId=" + seat.getSeatId());
                 }
                 scheduleRepository.refreshScheduleStatus(scheduleId);
             }

@@ -334,9 +334,6 @@ public class BookingService {
             throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "좌석 취소 실패");
         }
 
-        // performance_schedules의 available_seats 증가 (확정된 예약만)
-        boolean wasConfirmed = booking.getStatus() == BookingStatus.CONFIRMED;
-        
         // 예약 상태 변경
         booking.setStatus(BookingStatus.CANCELLED);
         booking.setCancelledAt(java.time.LocalDateTime.now());
@@ -346,14 +343,6 @@ public class BookingService {
 
         bookingRepository.save(booking);
 
-        // 확정된 예약이었다면 available_seats 증가
-        if (wasConfirmed) {
-            PerformanceSchedule schedule = booking.getSchedule();
-            schedule.setAvailableSeats(schedule.getAvailableSeats() + booking.getSeatCount());
-            scheduleRepository.save(schedule);
-        }
-
-        // 확정된 예약이었다면 좌석 상태를 AVAILABLE로 되돌리는 cancelSeats에서 카운터 증가 처리 완료
         CancelBooking200ResponseDto response = CancelBooking200ResponseDto.builder()
                 .message("예매 취소 성공")
                 .bookingId(booking.getBookingId())
