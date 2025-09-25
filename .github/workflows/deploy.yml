@@ -88,6 +88,9 @@ jobs:
           # User Data 스크립트 생성 (한국어 주석 포함)
           cat > user-data.sh << 'EOF'
           #!/bin/bash
+          
+          set -x
+          
           exec > /var/log/user-data.log 2>&1
           echo "=== GitHub Actions 자동 배포 시작: $(date) ==="
           
@@ -98,14 +101,15 @@ jobs:
           echo "배포 시간: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           
           # 인스턴스 정보
-          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-          INSTANCE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+          TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
+          INSTANCE_IP=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/local-ipv4)
           echo "🖥️ 인스턴스: $INSTANCE_ID ($INSTANCE_IP)"
           
           # 1단계: 시스템 준비
           echo "시스템 업데이트 및 패키지 설치..."
           yum update -y
-          yum install -y docker aws-cli jq curl htop
+          yum install -y docker htop
           
           # 2단계: Docker 설정
           echo "Docker 서비스 시작..."
