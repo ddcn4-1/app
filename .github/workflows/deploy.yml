@@ -277,6 +277,33 @@ jobs:
           echo "template-version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "Launch Template 버전 $NEW_VERSION 생성 완료"
 
+      - name: 기존 instance refresh 감지
+        id: existing instance refresh
+        run: |
+          # 기존 진행 중인 Instance Refresh가 있는지 확인
+          EXISTING_REFRESH=$(aws autoscaling describe-instance-refreshes \
+            --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
+            --query 'InstanceRefreshes[?Status==`InProgress`].[InstanceRefreshId]' \
+            --output text)
+          
+          if [ -n "$EXISTING_REFRESH" ]; then
+            echo "⚠️ 진행 중인 Instance Refresh 발견: $EXISTING_REFRESH"
+        
+            # force_deploy가 true인 경우 강제 취소
+            if [ "${{ github.event.inputs.force_deploy }}" = "true" ]; then
+              echo "⚠️ force_deploy=true: 진행 중인 Refresh 강제 취소 시도"
+              aws autoscaling cancel-instance-refresh \
+                --auto-scaling-group-name ${{ secrets.ASG_NAME }}
+              echo "기존 Instance Refresh 취소됨"
+              sleep 10
+            else
+              echo "❌ 진행 중인 Instance Refresh가 있어 배포 중단"
+              echo "➡️ 수동으로 콘솔에서 완료되거나, force_deploy=true로 재시도하세요"
+              exit 1
+            fi
+          fi
+
+
       - name: 중단 배포 시작
         id: rolling-deploy
         run: |
@@ -320,9 +347,7 @@ jobs:
           
           while [ $MONITOR_COUNT -lt $MAX_WAIT_TIME ]; do
             ((MONITOR_COUNT++))
-          
-
-          
+        
             # Instance Refresh 상태 확인
             REFRESH_INFO=$(aws autoscaling describe-instance-refreshes \
               --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
