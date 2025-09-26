@@ -308,75 +308,70 @@ jobs:
           echo "refresh-id=$REFRESH_ID" >> $GITHUB_OUTPUT
           sleep 60
           
-          # 단순화된 모니터링 (헬스체크 없음)
-          echo "배포 진행 상황 모니터링..."
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
           MONITOR_COUNT=0
-          MAX_WAIT_TIME=90  # 45분
+          MAX_WAIT_TIME=90  # 45분 (30초 * 90)
           DEPLOYMENT_STATUS="UNKNOWN"
-
+          
           while [ $MONITOR_COUNT -lt $MAX_WAIT_TIME ]; do
             ((MONITOR_COUNT++))
-
-            # Instance Refresh 상태 확인
+          
+            # 안전하게 상태 조회
             REFRESH_INFO=$(aws autoscaling describe-instance-refreshes \
-              --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
-              --instance-refresh-ids $REFRESH_ID \
-              --query 'InstanceRefreshes[0]')
-
-            STATUS=$(echo "$REFRESH_INFO" | jq -r '.Status')
-            PERCENTAGE=$(echo "$REFRESH_INFO" | jq -r '.PercentageComplete // 0')
-
-            # 경과 시간 표시
-            ELAPSED_MIN=$((MONITOR_COUNT / 2))
-            echo "[$ELAPSED_MIN분] $STATUS - $PERCENTAGE% 완료"
-
-            # 간단한 상태 처리
+              --auto-scaling-group-name "${{ secrets.ASG_NAME }}" \
+              --instance-refresh-ids "$REFRESH_ID" \
+              --output json 2>/dev/null || true)
+          
+            if [ -z "$REFRESH_INFO" ] || [ "$REFRESH_INFO" = "null" ]; then
+              echo "[$((MONITOR_COUNT / 2))분] Instance Refresh 상태를 아직 조회할 수 없습니다. 재시도..."
+              sleep 30
+              continue
+            fi
+          
+            STATUS=$(echo "$REFRESH_INFO" | jq -r '.InstanceRefreshes[0].Status // "UNKNOWN"')
+            PERCENTAGE=$(echo "$REFRESH_INFO" | jq -r '.InstanceRefreshes[0].PercentageComplete // 0')
+          
+            echo "[$((MONITOR_COUNT / 2))분] $STATUS - $PERCENTAGE% 완료"
+          
             case $STATUS in
               "Successful")
                 echo "Instance Refresh 완료"
                 echo "새 인스턴스가 성공적으로 기존 인스턴스를 대체했습니다"
-          
-                # 최종 상태 출력
                 aws autoscaling describe-auto-scaling-groups \
-                  --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+                  --auto-scaling-group-names "${{ secrets.ASG_NAME }}" \
                   --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}'
-          
                 DEPLOYMENT_STATUS="SUCCESS"
                 break
                 ;;
               "Failed"|"Cancelled")
-                echo "Instance Refresh 실패: $STATUS"
-                echo "실패 이유: $(echo "$REFRESH_INFO" | jq -r '.StatusReason')"
+                echo "❌ Instance Refresh 실패: $STATUS"
+                echo "실패 이유: $(echo "$REFRESH_INFO" | jq -r '.InstanceRefreshes[0].StatusReason // "알 수 없음"')"
                 DEPLOYMENT_STATUS="FAILED"
                 break
                 ;;
               "InProgress"|"Pending")
-                # 10분마다 상세 상태 출력
                 if [ $((MONITOR_COUNT % 20)) -eq 0 ]; then
-                  echo "현재 인스턴스 상태:"
+                  echo "🔄 현재 인스턴스 상태:"
                   aws autoscaling describe-auto-scaling-groups \
-                    --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+                    --auto-scaling-group-names "${{ secrets.ASG_NAME }}" \
                     --query 'AutoScalingGroups[0].Instances[].[InstanceId,LifecycleState,HealthStatus]' \
                     --output table
                 fi
                 ;;
               *)
-                echo "📝 상태: $STATUS"
+                echo "📝 알 수 없는 상태: $STATUS"
                 ;;
             esac
-
+          
             sleep 30
           done
-
+          
           # 타임아웃 처리
           if [ "$DEPLOYMENT_STATUS" = "UNKNOWN" ]; then
-            echo "배포 타임아웃 (45분)"
+            echo "⏰ 배포 타임아웃 (45분)"
             echo "현재 상태: $STATUS ($PERCENTAGE%)"
             DEPLOYMENT_STATUS="TIMEOUT"
           fi
-
+          
           # 상태 전달
           echo "deployment-status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
           echo "final-status=$STATUS" >> $GITHUB_OUTPUT
