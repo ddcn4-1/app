@@ -278,7 +278,6 @@ jobs:
           echo "Launch Template 버전 $NEW_VERSION 생성 완료"
 
       - name: 기존 instance refresh 감지
-        id: existing instance refresh
         run: |
           # 기존 진행 중인 Instance Refresh가 있는지 확인
           EXISTING_REFRESH=$(aws autoscaling describe-instance-refreshes \
