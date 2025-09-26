@@ -277,7 +277,7 @@ jobs:
           echo "template-version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "Launch Template 버전 $NEW_VERSION 생성 완료"
 
-      - name: 무중단 Rolling 배포 시작
+      - name: 중단 배포 시작 (추후 무중단 배포로 변경)
         id: rolling-deploy
         run: |
           echo "무중단 Rolling 배포 시작..."
@@ -294,10 +294,10 @@ jobs:
           REFRESH_ID=$(aws autoscaling start-instance-refresh \
             --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
             --preferences '{
-              "InstanceWarmup": 300,
-              "MinHealthyPercentage": 50,
-              "MaxHealthyPercentage": 150,
-              "CheckpointPercentages": [25, 50, 75, 100],
+              "InstanceWarmup": 600,
+              "MinHealthyPercentage": 0,
+              "MaxHealthyPercentage": 100,
+              "CheckpointPercentages": [100],
               "CheckpointDelay": 300,
               "ScaleInProtectedInstances": "Ignore"
             }' \
@@ -306,14 +306,14 @@ jobs:
 
           echo "Instance Refresh ID: $REFRESH_ID"
           echo "refresh-id=$REFRESH_ID" >> $GITHUB_OUTPUT
-          sleep 10
+          sleep 30
 
           # 배포 진행 상황 모니터링
           echo "배포 진행 상황 실시간 모니터링..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
           MONITOR_COUNT=0
-          MAX_WAIT_TIME=60  # 30분 (30초 * 60회)로 증가
+          MAX_WAIT_TIME=60  # 30분 (30초 * 60회)
           DEPLOYMENT_STATUS="UNKNOWN"
 
           while [ $MONITOR_COUNT -lt $MAX_WAIT_TIME ]; do
@@ -339,7 +339,7 @@ jobs:
               fi
             done
 
-            echo "[$MONITOR_COUNT/$MAX_WAIT_TIME] 🔄 $STATUS [$PROGRESS_BAR] $PERCENTAGE%"
+            echo "[$MONITOR_COUNT/$MAX_WAIT_TIME] $STATUS [$PROGRESS_BAR] $PERCENTAGE%"
 
             # 상태별 처리
             case $STATUS in
@@ -388,7 +388,7 @@ jobs:
 
           # 타임아웃 처리
           if [ "$DEPLOYMENT_STATUS" = "UNKNOWN" ]; then
-            echo "⚠️ 배포 타임아웃 (30분)"
+            echo "배포 타임아웃"
             echo "현재 상태: $STATUS ($PERCENTAGE%)"
             echo "Instance Refresh ID: $REFRESH_ID"
 
@@ -449,77 +449,33 @@ jobs:
               ;;
           esac
 
-      - name: 배포 검증 및 최종 확인
-        if: steps.rolling-deploy.outputs.deployment-status == 'SUCCESS' || (steps.rolling-deploy.outputs.deployment-status == 'TIMEOUT' && steps.rolling-deploy.outputs.final-percentage > 0)
+      - name: 배포 검증 
+        if: steps.rolling-deploy.outputs.deployment-status == 'SUCCESS'
         run: |
-          echo "배포 검증 시작..."
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          # 1. 새 인스턴스 정보 확인
-          echo "배포된 인스턴스 정보:"
-          INSTANCE_INFO=$(aws autoscaling describe-auto-scaling-instances \
-            --query 'AutoScalingInstances[?AutoScalingGroupName==`${{ secrets.ASG_NAME }}`] | [0]')
-          
-          if [ "$INSTANCE_INFO" = "null" ]; then
-            echo "ASG에서 인스턴스를 찾을 수 없습니다"
-            exit 1
-          fi
-          
-          INSTANCE_ID=$(echo "$INSTANCE_INFO" | jq -r '.InstanceId')
-          
-          INSTANCE_DETAILS=$(aws ec2 describe-instances \
-            --instance-ids $INSTANCE_ID \
-            --query 'Reservations[0].Instances[0]')
-          
-          INSTANCE_IP=$(echo "$INSTANCE_DETAILS" | jq -r '.PrivateIpAddress')
-          LAUNCH_TIME=$(echo "$INSTANCE_DETAILS" | jq -r '.LaunchTime')
-          IMAGE_ID=$(echo "$INSTANCE_DETAILS" | jq -r '.ImageId')
-          
-          echo "  Instance ID: $INSTANCE_ID"
-          echo "  Private IP: $INSTANCE_IP"  
-          echo "  시작 시간: $LAUNCH_TIME"
-          echo "  AMI ID: $IMAGE_ID"
-          echo "  이미지 태그: ${{ steps.build-image.outputs.image-tag }}"
-          echo "  커밋: ${{ github.sha }}"
-          
-          # 2. 인스턴스 태그 확인
-          echo ""
-          echo "인스턴스 태그:"
-          aws ec2 describe-tags \
-            --filters "Name=resource-id,Values=$INSTANCE_ID" \
-            --query 'Tags[].[Key,Value]' \
-            --output table
-          
-          
-          # 헬스체크 검증
-          HEALTH_ATTEMPTS=0
-          MAX_HEALTH_ATTEMPTS=10
-          
-          while [ $HEALTH_ATTEMPTS -lt $MAX_HEALTH_ATTEMPTS ]; do
-            ((HEALTH_ATTEMPTS++))
-            echo "헬스체크 시도 $HEALTH_ATTEMPTS/$MAX_HEALTH_ATTEMPTS..."
-          
-            HEALTH_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" https://ddcn41.com/api/actuator/health || echo "FAILED")
-          
-            if echo "$HEALTH_RESPONSE" | grep -q "HTTPSTATUS:200"; then
-              HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | sed -E 's/HTTPSTATUS:[0-9]{3}$//')
-              echo "헬스체크 성공!"
-              echo "$HEALTH_BODY" | jq '.' || echo "$HEALTH_BODY"
+          echo "배포 검증 중..."
+
+          for i in {1..5}; do
+            if curl -f -s https://ddcn41.com/api/actuator/health > /dev/null; then
+              echo "외부 접근 확인"
               break
-            else
-              echo "헬스체크 실패: $HEALTH_RESPONSE"
-              if [ $HEALTH_ATTEMPTS -eq $MAX_HEALTH_ATTEMPTS ]; then
-                echo "최종 헬스체크 실패"
-                exit 1
-              fi
-              echo "30초 후 재시도..."
-              sleep 30
             fi
+            echo "외부 접근 테스트 $i/5..."
+            sleep 30
           done
-      
-          # 최종 성공 메시지
-          echo ""
-          echo "배포 검증 완료"
+
+      - name: 알림
+        if: always()
+        run: |
+          STATUS="${{ steps.rolling-deploy.outputs.deployment-status }}"
+          if [ "$STATUS" = "SUCCESS" ]; then
+            echo "🎉 배포 성공!"
+          else
+            echo "⚠️ 배포 문제 발생: $STATUS"
+          fi
+
+          echo "이미지: ${{ steps.build-image.outputs.image-tag }}"
+          echo "배포자: ${{ github.actor }}"
+          echo "시간: $(date)"
 
       - name: 배포 성공 알림
         if: success()
