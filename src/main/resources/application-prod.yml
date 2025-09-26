@@ -84,10 +84,3 @@ seatlock:
   mode: redis
   ttl-seconds: 600  # 10분
   extend-seconds: 120
-
-# AWS 설정
-aws:
-  lambda:
-    asg-scaler:
-      function-name: ${AWS_LAMBDA_ASG_SCALER_FUNCTION_NAME}  # 필수
-  region: ${AWS_REGION:ap-northeast-2}

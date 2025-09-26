@@ -109,7 +109,7 @@ jobs:
           # 1단계: 시스템 준비
           echo "시스템 업데이트 및 패키지 설치..."
           yum update -y
-          yum install -y docker htop
+          yum install -y docker aws-cli jq curl htop --allowerasing
           
           # 2단계: Docker 설정
           echo "Docker 서비스 시작..."
@@ -282,13 +282,13 @@ jobs:
         run: |
           echo "무중단 Rolling 배포 시작..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
+
           # 배포 전 상태 확인
           echo "배포 전 ASG 상태:"
           aws autoscaling describe-auto-scaling-groups \
             --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
             --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}'
-          
+
           # Instance Refresh 시작
           echo "Instance Refresh 시작..."
           REFRESH_ID=$(aws autoscaling start-instance-refresh \
@@ -303,29 +303,31 @@ jobs:
             }' \
             --query 'InstanceRefreshId' \
             --output text)
-          
+
           echo "Instance Refresh ID: $REFRESH_ID"
           echo "refresh-id=$REFRESH_ID" >> $GITHUB_OUTPUT
-          
+          sleep 10
+
           # 배포 진행 상황 모니터링
           echo "배포 진행 상황 실시간 모니터링..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
+
           MONITOR_COUNT=0
-          MAX_WAIT_TIME=90  # 45분 (30초 * 90회)
-          
+          MAX_WAIT_TIME=60  # 30분 (30초 * 60회)로 증가
+          DEPLOYMENT_STATUS="UNKNOWN"
+
           while [ $MONITOR_COUNT -lt $MAX_WAIT_TIME ]; do
             ((MONITOR_COUNT++))
-          
+
             # Instance Refresh 상태 조회
             REFRESH_INFO=$(aws autoscaling describe-instance-refreshes \
               --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
               --instance-refresh-ids $REFRESH_ID \
               --query 'InstanceRefreshes[0]')
-          
+
             STATUS=$(echo "$REFRESH_INFO" | jq -r '.Status')
             PERCENTAGE=$(echo "$REFRESH_INFO" | jq -r '.PercentageComplete // 0')
-          
+
             # 진행률 바 생성
             PROGRESS_BAR=""
             FILLED=$((PERCENTAGE / 5))
@@ -336,35 +338,37 @@ jobs:
                 PROGRESS_BAR+="░"
               fi
             done
-          
+
             echo "[$MONITOR_COUNT/$MAX_WAIT_TIME] 🔄 $STATUS [$PROGRESS_BAR] $PERCENTAGE%"
-          
+
             # 상태별 처리
             case $STATUS in
               "Successful")
                 echo "Rolling 배포 성공!"
                 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
+
                 # 최종 상태 출력
                 echo "배포 완료 후 ASG 상태:"
                 aws autoscaling describe-auto-scaling-groups \
                   --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
                   --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus,LaunchTime:LaunchTime}}'
-          
-                exit 0
+
+                DEPLOYMENT_STATUS="SUCCESS"
+                break
                 ;;
               "Failed"|"Cancelled")
                 echo "Rolling 배포 실패: $STATUS"
                 echo "실패 이유:"
                 echo "$REFRESH_INFO" | jq -r '.StatusReason // "상세 정보 없음"'
-          
+
                 # 실패한 인스턴스 정보 출력
                 echo "현재 인스턴스 상태:"
                 aws autoscaling describe-auto-scaling-groups \
                   --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
                   --query 'AutoScalingGroups[0].Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}'
-          
-                exit 1
+
+                DEPLOYMENT_STATUS="FAILED"
+                break
                 ;;
               "InProgress"|"Pending")
                 # 체크포인트 정보가 있다면 출력
@@ -378,15 +382,75 @@ jobs:
                 echo "배포 준비 중... ($STATUS)"
                 ;;
             esac
-          
+
             sleep 30
           done
-          
-          echo "배포 시간 초과 (45분)"
-          echo "현재 상태: $STATUS ($PERCENTAGE%)"
-          exit 1
+
+          # 타임아웃 처리
+          if [ "$DEPLOYMENT_STATUS" = "UNKNOWN" ]; then
+            echo "⚠️ 배포 타임아웃 (30분)"
+            echo "현재 상태: $STATUS ($PERCENTAGE%)"
+            echo "Instance Refresh ID: $REFRESH_ID"
+
+            # 타임아웃 시에도 상태 정보 제공
+            echo "현재 ASG 상태:"
+            aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+              --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}'
+
+            DEPLOYMENT_STATUS="TIMEOUT"
+          fi
+
+          # 상태를 다음 단계로 전달
+          echo "deployment-status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
+          echo "final-status=$STATUS" >> $GITHUB_OUTPUT
+          echo "final-percentage=$PERCENTAGE" >> $GITHUB_OUTPUT
+
+      - name: 배포 결과 처리
+        id: handle-result
+        run: |
+          DEPLOYMENT_STATUS="${{ steps.rolling-deploy.outputs.deployment-status }}"
+          FINAL_STATUS="${{ steps.rolling-deploy.outputs.final-status }}"
+          FINAL_PERCENTAGE="${{ steps.rolling-deploy.outputs.final-percentage }}"
+
+          echo "배포 결과 분석..."
+          echo "배포 상태: $DEPLOYMENT_STATUS"
+          echo "최종 AWS 상태: $FINAL_STATUS"
+          echo "완료율: $FINAL_PERCENTAGE%"
+
+          case $DEPLOYMENT_STATUS in
+            "SUCCESS")
+              echo "배포가 성공적으로 완료되었습니다"
+              exit 0
+              ;;
+            "FAILED")
+              echo "배포가 실패했습니다"
+              echo "수동으로 AWS 콘솔에서 확인이 필요합니다"
+              exit 1
+              ;;
+            "TIMEOUT")
+              echo "배포 시간이 초과되었습니다"
+              echo "배포가 백그라운드에서 계속 진행 중일 수 있습니다"
+              echo "AWS 콘솔에서 Instance Refresh 상태를 확인하세요"
+              echo "Instance Refresh ID: ${{ steps.rolling-deploy.outputs.refresh-id }}"
+
+              # 타임아웃을 경고로 처리하고 계속 진행
+              if [ "$FINAL_PERCENTAGE" -gt 0 ]; then
+                echo "일부 진행이 있었으므로 경고로 처리합니다"
+                echo "::warning::배포 타임아웃 - AWS 콘솔에서 수동 확인 필요"
+              else
+                echo "진행이 전혀 없었으므로 실패로 처리합니다"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "알 수 없는 배포 상태"
+              exit 1
+              ;;
+          esac
 
       - name: 배포 검증 및 최종 확인
+        if: steps.rolling-deploy.outputs.deployment-status == 'SUCCESS' || (steps.rolling-deploy.outputs.deployment-status == 'TIMEOUT' && steps.rolling-deploy.outputs.final-percentage > 0)
         run: |
           echo "배포 검증 시작..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -426,13 +490,6 @@ jobs:
             --query 'Tags[].[Key,Value]' \
             --output table
           
-          # 3. 애플리케이션 응답 검증
-          echo ""
-          echo "애플리케이션 응답 검증..."
-          
-          # CloudFront 캐시 무효화를 위한 대기
-          echo "CloudFront 캐시 및 DNS 전파 대기 (60초)..."
-          sleep 60
           
           # 헬스체크 검증
           HEALTH_ATTEMPTS=0
@@ -459,21 +516,8 @@ jobs:
               sleep 30
             fi
           done
-          
-          # 4. 시스템 정보 확인 (선택사항 - 인증이 필요할 수 있음)
-          echo ""
-          echo "시스템 정보 확인 시도..."
-          SYSTEM_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" https://ddcn41.com/api/admin/system-info || echo "FAILED")
-          
-          if echo "$SYSTEM_RESPONSE" | grep -q "HTTPSTATUS:200"; then
-            SYSTEM_BODY=$(echo "$SYSTEM_RESPONSE" | sed -E 's/HTTPSTATUS:[0-9]{3}$//')
-            echo "시스템 정보:"
-            echo "$SYSTEM_BODY" | jq '.' || echo "$SYSTEM_BODY"
-          else
-            echo "⚠시스템 정보 조회 실패 (권한 필요 또는 미구현): $SYSTEM_RESPONSE"
-          fi
-          
-          # 5. 최종 성공 메시지
+      
+          # 최종 성공 메시지
           echo ""
           echo "배포 검증 완료"
 
