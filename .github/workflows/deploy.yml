@@ -280,7 +280,8 @@ jobs:
       - name: 중단 배포 시작
         id: rolling-deploy
         run: |
-          set -ex
+          set -eo pipefail
+          set -x
           echo "중단 배포 시작..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
@@ -320,11 +321,21 @@ jobs:
           while [ $MONITOR_COUNT -lt $MAX_WAIT_TIME ]; do
             ((MONITOR_COUNT++))
           
+
+          
             # Instance Refresh 상태 확인
             REFRESH_INFO=$(aws autoscaling describe-instance-refreshes \
               --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
               --instance-refresh-ids "$REFRESH_ID" \
               --output json 2>/dev/null || true)
+            
+            echo "REFRESH_INFO Raw:"
+            echo "$REFRESH_INFO"
+            if ! echo "$REFRESH_INFO" | jq '.' > /dev/null 2>&1; then
+             echo "jq 파싱 실패: REFRESH_INFO가 유효한 JSON이 아닙니다"
+              echo "$REFRESH_INFO"
+              exit 1
+            fi
           
             # REFRESH_INFO가 없거나 null일 경우 대기 후 재시도
             if [ -z "$REFRESH_INFO" ] || [ "$REFRESH_INFO" = "null" ]; then
