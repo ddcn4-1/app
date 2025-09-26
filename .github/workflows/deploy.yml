@@ -280,6 +280,7 @@ jobs:
       - name: 중단 배포 시작
         id: rolling-deploy
         run: |
+          set -ex
           echo "중단 배포 시작..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
