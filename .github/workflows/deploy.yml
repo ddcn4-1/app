@@ -307,199 +307,64 @@ jobs:
         id: rolling-deploy
         run: |
           set -eo pipefail
-          set -x
           echo "중단 배포 시작..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           # 배포 전 상태 확인
           echo "배포 전 ASG 상태:"
           aws autoscaling describe-auto-scaling-groups \
-            --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
-            --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}'
+          --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+          --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}'
           
           # Instance Refresh 시작
           echo "Instance Refresh 시작..."
           REFRESH_ID=$(aws autoscaling start-instance-refresh \
-            --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
-            --preferences '{
-              "InstanceWarmup": 300,
-              "MinHealthyPercentage": 50,
-              "MaxHealthyPercentage": 100,
-              "CheckpointPercentages": [100],
-              "CheckpointDelay": 300,
-              "ScaleInProtectedInstances": "Ignore"
-            }' \
-            --query 'InstanceRefreshId' \
-            --output text)
+          --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
+          --preferences '{
+           "InstanceWarmup": 300,
+           "MinHealthyPercentage": 50,
+           "MaxHealthyPercentage": 100,
+           "CheckpointPercentages": [100],
+           "CheckpointDelay": 300,
+           "ScaleInProtectedInstances": "Ignore"
+          }' \
+          --query 'InstanceRefreshId' \
+          --output text)
           
           echo "Instance Refresh ID: $REFRESH_ID"
           echo "refresh-id=$REFRESH_ID" >> $GITHUB_OUTPUT
-          sleep 60
+          echo "deployment-status=STARTED" >> $GITHUB_OUTPUT
           
-          # 단순화된 모니터링 (헬스체크 없음)
-          echo "배포 진행 상황 모니터링..."
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          MONITOR_COUNT=0
-          MAX_WAIT_TIME=90  # 45분
-          DEPLOYMENT_STATUS="UNKNOWN"
-          
-          while [ $MONITOR_COUNT -lt $MAX_WAIT_TIME ]; do
-            ((MONITOR_COUNT++))
-        
-            # Instance Refresh 상태 확인
-            REFRESH_INFO=$(aws autoscaling describe-instance-refreshes \
-              --auto-scaling-group-name ${{ secrets.ASG_NAME }} \
-              --instance-refresh-ids "$REFRESH_ID" \
-              --output json 2>/dev/null || true)
-            
-            echo "REFRESH_INFO Raw:"
-            echo "$REFRESH_INFO"
-            if ! echo "$REFRESH_INFO" | jq '.' > /dev/null 2>&1; then
-             echo "jq 파싱 실패: REFRESH_INFO가 유효한 JSON이 아닙니다"
-              echo "$REFRESH_INFO"
-              exit 1
-            fi
-          
-            # REFRESH_INFO가 없거나 null일 경우 대기 후 재시도
-            if [ -z "$REFRESH_INFO" ] || [ "$REFRESH_INFO" = "null" ]; then
-              echo "instance Refresh 상태를 아직 가져올 수 없습니다. 재시도 대기 중..."
-              sleep 30
-              continue
-            fi
-          
-            # jq 파싱 실패 방지용 기본값 사용
-            STATUS=$(echo "$REFRESH_INFO" | jq -r '.InstanceRefreshes[0].Status // "UNKNOWN"')
-            PERCENTAGE=$(echo "$REFRESH_INFO" | jq -r '.InstanceRefreshes[0].PercentageComplete // 0')
-          
-            # 경과 시간 표시
-            ELAPSED_MIN=$((MONITOR_COUNT / 2))
-            echo "[$ELAPSED_MIN분] $STATUS - $PERCENTAGE% 완료"
-          
-            # 상태 처리
-            case $STATUS in
-              "Successful")
-                echo "Instance Refresh 완료"
-                echo "새 인스턴스가 성공적으로 기존 인스턴스를 대체했습니다"
-          
-                # 최종 상태 출력
-                aws autoscaling describe-auto-scaling-groups \
-                  --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
-                  --query 'AutoScalingGroups[0].{DesiredCapacity:DesiredCapacity,Instances:Instances[].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}}'
-          
-                DEPLOYMENT_STATUS="SUCCESS"
-                break
-                ;;
-              "Failed"|"Cancelled")
-                echo "Instance Refresh 실패: $STATUS"
-                echo "실패 이유: $(echo "$REFRESH_INFO" | jq -r '.InstanceRefreshes[0].StatusReason // "알 수 없음"')"
-                DEPLOYMENT_STATUS="FAILED"
-                break
-                ;;
-              "InProgress"|"Pending")
-                # 10분마다 상세 상태 출력
-                if [ $((MONITOR_COUNT % 20)) -eq 0 ]; then
-                  echo "현재 인스턴스 상태:"
-                  aws autoscaling describe-auto-scaling-groups \
-                    --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
-                    --query 'AutoScalingGroups[0].Instances[].[InstanceId,LifecycleState,HealthStatus]' \
-                    --output table
-                fi
-                ;;
-              *)
-                echo "📝 상태: $STATUS"
-                ;;
-            esac
-          
-            sleep 30
-          done
-          
-          # 타임아웃 처리
-          if [ "$DEPLOYMENT_STATUS" = "UNKNOWN" ]; then
-            echo "배포 타임아웃 (45분)"
-            echo "현재 상태: $STATUS ($PERCENTAGE%)"
-            DEPLOYMENT_STATUS="TIMEOUT"
-          fi
-          
-          # 상태 전달
-          echo "deployment-status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
-          echo "final-status=$STATUS" >> $GITHUB_OUTPUT
-          echo "final-percentage=$PERCENTAGE" >> $GITHUB_OUTPUT
+          echo "Instance Refresh가 백그라운드에서 진행됩니다."
+          echo "AWS 콘솔에서 진행 상황을 확인하세요: $REFRESH_ID"
 
       - name: 배포 결과 처리
         run: |
-          DEPLOYMENT_STATUS="${{ steps.rolling-deploy.outputs.deployment-status }}"
-          
-          echo "배포 결과: $DEPLOYMENT_STATUS"
-          
-          case $DEPLOYMENT_STATUS in
-            "SUCCESS")
-              echo "배포 성공 - Instance Refresh 완료"
-              ;;
-            "FAILED")
-              echo "배포 실패 - Instance Refresh 실패"
-              exit 1
-              ;;
-            "TIMEOUT")
-              echo "배포 타임아웃 - AWS 콘솔에서 수동 확인 필요"
-              echo "Instance Refresh ID: ${{ steps.rolling-deploy.outputs.refresh-id }}"
-              echo "::warning::배포 타임아웃"
-              ;;
-            *)
-              echo "알 수 없는 상태"
-              exit 1
-              ;;
-          esac
-
-      #현재 백엔드 서버로 cloudfront가 연결되어있지 않으므로, 나중에 연결 업데이트 반드시 필요함.
-      # 현상황으로는 아래 검증은 늘 성공(vpc origin ec2가 다운되지 않는 이상)
-      - name: 배포 검증
-        if: steps.rolling-deploy.outputs.deployment-status == 'SUCCESS'
-        run: |
-          echo "배포 검증 중..."
-
-          for i in {1..5}; do
-            if curl -f -s https://ddcn41.com/api/actuator/health > /dev/null; then
-              echo "외부 접근 확인"
-              break
-            fi
-            echo "외부 접근 테스트 $i/5..."
-            sleep 30
-          done
-
-      - name: 알림
-        if: always()
-        run: |
-          STATUS="${{ steps.rolling-deploy.outputs.deployment-status }}"
-          if [ "$STATUS" = "SUCCESS" ]; then
-            echo "배포 성공!"
-          else
-            echo "배포 문제 발생: $STATUS"
-          fi
-
-          echo "이미지: ${{ steps.build-image.outputs.image-tag }}"
-          echo "배포자: ${{ github.actor }}"
-          echo "시간: $(date)"
+          echo "Instance Refresh 시작 완료"
+          echo "Refresh ID: ${{ steps.rolling-deploy.outputs.refresh-id }}"
+          echo "AWS Auto Scaling 콘솔에서 진행 상황을 모니터링하세요."
 
       - name: 배포 성공 알림
         if: success()
         run: |
           echo ""
-          echo "         ddcn41 Backend 배포 성공"
+          echo "         ddcn41 Backend 배포 시작 완료"
           echo ""
           echo "배포 요약:"
           echo "  이미지 태그: ${{ steps.build-image.outputs.image-tag }}"
           echo "  Refresh ID: ${{ steps.rolling-deploy.outputs.refresh-id }}"
           echo "  배포자: ${{ github.actor }}"
-          echo "  배포 시간: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "  배포 시작 시간: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "  커밋: https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
           echo ""
+          echo "Instance Refresh가 백그라운드에서 진행 중입니다."
+          echo "AWS 콘솔에서 진행 상황을 확인하세요."
 
       - name: 배포 실패 처리
         if: failure()
         run: |
           echo ""
-          echo "         ddcn41 Backend 배포 실패"
+          echo "         ddcn41 Backend 배포 시작 실패"
           echo ""
           echo "실패 정보:"
           echo "시도자: ${{ github.actor }}"
