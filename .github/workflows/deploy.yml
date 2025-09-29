@@ -2,7 +2,7 @@ name: deploy.yml
 on:
   push:
     branches:
-      - feat/asg-cli
+      - main
   workflow_dispatch:
     inputs:
       force_deploy:
