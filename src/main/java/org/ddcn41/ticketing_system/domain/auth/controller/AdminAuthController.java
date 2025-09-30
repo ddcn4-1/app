@@ -29,7 +29,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/admin/auth")
+@RequestMapping("v1/admin/auth")
 @Tag(name = "Admin Authentication", description = "APIs for administrator authentication")
 public class AdminAuthController {
 
@@ -161,42 +161,42 @@ public class AdminAuthController {
         return ResponseEntity.ok(responseMap);
     }
 
-    /**
-     * 관리자 상태 확인
-     */
-    @GetMapping("/status")
-    @PreAuthorize("hasRole('ADMIN')")
-    @Operation(
-            summary = "Admin status check",
-            description = "Returns the current authenticated admin user's status and information."
-    )
-    @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses(value = {
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "Admin status retrieved successfully",
-                    content = @Content(
-                            examples = @ExampleObject(
-                                    value = "{\"admin\":\"admin\",\"role\":\"ADMIN\",\"lastLogin\":\"2024-12-01T10:30:00\",\"isActive\":true,\"timestamp\":\"...\"}"
-                            )
-                    )
-            ),
-            @ApiResponse(
-                    responseCode = "401",
-                    description = "Unauthorized - invalid or missing admin token",
-                    content = @Content
-            )
-    })
-    public ResponseEntity<?> adminStatus(Authentication authentication) {
-        String adminUsername = authentication.getName();
-        User admin = userService.findByUsername(adminUsername);
-
-        return ResponseEntity.ok(Map.of(
-                "admin", adminUsername,
-                "role", admin.getRole().name(),
-                "lastLogin", admin.getLastLogin(),
-                "isActive", true,
-                "timestamp", LocalDateTime.now()
-        ));
-    }
+//    /**
+//     * 관리자 상태 확인
+//     */
+//    @GetMapping("/status")
+//    @PreAuthorize("hasRole('ADMIN')")
+//    @Operation(
+//            summary = "Admin status check",
+//            description = "Returns the current authenticated admin user's status and information."
+//    )
+//    @SecurityRequirement(name = "bearerAuth")
+//    @ApiResponses(value = {
+//            @ApiResponse(
+//                    responseCode = "200",
+//                    description = "Admin status retrieved successfully",
+//                    content = @Content(
+//                            examples = @ExampleObject(
+//                                    value = "{\"admin\":\"admin\",\"role\":\"ADMIN\",\"lastLogin\":\"2024-12-01T10:30:00\",\"isActive\":true,\"timestamp\":\"...\"}"
+//                            )
+//                    )
+//            ),
+//            @ApiResponse(
+//                    responseCode = "401",
+//                    description = "Unauthorized - invalid or missing admin token",
+//                    content = @Content
+//            )
+//    })
+//    public ResponseEntity<?> adminStatus(Authentication authentication) {
+//        String adminUsername = authentication.getName();
+//        User admin = userService.findByUsername(adminUsername);
+//
+//        return ResponseEntity.ok(Map.of(
+//                "admin", adminUsername,
+//                "role", admin.getRole().name(),
+//                "lastLogin", admin.getLastLogin(),
+//                "isActive", true,
+//                "timestamp", LocalDateTime.now()
+//        ));
+//    }
 }

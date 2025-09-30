@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/queue")
+@RequestMapping("/v1/queue")
 @RequiredArgsConstructor
 @Tag(name = "Queue", description = "대기열 관리 API")
 public class QueueController {
