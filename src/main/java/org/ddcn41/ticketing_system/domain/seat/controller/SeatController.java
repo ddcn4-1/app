@@ -23,7 +23,7 @@ import java.util.List;
  * 스케줄별 좌석 관리를 담당하는 RESTful 엔드포인트
  */
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping("/v1")
 @RequiredArgsConstructor
 public class SeatController {
 
