@@ -58,8 +58,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authz -> authz
                         // 인증 관련 엔드포인트 허용
-                        .requestMatchers("/auth/**").permitAll()
-                        .requestMatchers("/admin/auth/login").permitAll()  // 관리자 로그인만 허용
+                        .requestMatchers("/v1/auth/**").permitAll()
+                        .requestMatchers("/v1/admin/auth/login").permitAll()  // 관리자 로그인만 허용
 
                         // 헬스체크 허용
                         .requestMatchers("/actuator/**").permitAll()
@@ -73,19 +73,19 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
 
-                        .requestMatchers("/api/v1/queue/release-session").permitAll()// Beacon을 통한 세션 해제는 인증 없이 허용 (전용 엔드포인트)
+                        .requestMatchers("/v1/queue/release-session").permitAll()// Beacon을 통한 세션 해제는 인증 없이 허용 (전용 엔드포인트)
 
                         // Queue API는 인증 필요 (대부분의 엔드포인트가 @SecurityRequirement 있음)
-                        .requestMatchers("/api/v1/queue/**").authenticated()
+                        .requestMatchers("/v1/queue/**").authenticated()
 
-                        // 정적 리소스 및 페이지 라우팅 허용
-                        .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
-                        .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()
-                        .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
+//                        // 정적 리소스 및 페이지 라우팅 허용
+//                        .requestMatchers("/", "/index.html", "/login.html", "/admin-login.html", "/admin.html").permitAll()
+//                        .requestMatchers("/login", "/admin/login", "/admin/dashboard").permitAll()
+//                        .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
 
                         // 관리자 전용 API 엔드포인트 (로그인 후 ADMIN 권한 필요)
-                        .requestMatchers("/admin/auth/**").hasRole("ADMIN")
-                        .requestMatchers("/admin/api/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/admin/auth/**").hasRole("ADMIN")
+                        .requestMatchers("admin/api/**").hasRole("ADMIN")
 
                         .requestMatchers("/v1/admin/users/**").hasAnyRole("ADMIN", "DEVOPS")
                         .requestMatchers("/v1/admin/performances/**").hasAnyRole("ADMIN")
@@ -103,11 +103,9 @@ public class SecurityConfig {
                         .requestMatchers("/v1/bookings/**").permitAll()
 
                         // 좌석 조회 API 허용 (스케줄별 좌석 가용성 조회)
-                        .requestMatchers("/api/v1/schedules/**").permitAll()
+                        .requestMatchers("/v1/schedules/**").permitAll()
                         // 공연장 조회/좌석맵 조회 API (GET만 허용)
-                        .requestMatchers(HttpMethod.GET, "/api/venues/**").permitAll()
-
-                        .requestMatchers("/api/aws/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/v1/venues/**").permitAll()
 
                         // 나머지는 인증 필요
                         .anyRequest().authenticated()
