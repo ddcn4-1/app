@@ -315,6 +315,10 @@ public class QueueService {
                 .bookingExpiresAt(queueToken.getBookingExpiresAt())
                 .build();
     }
+
+    /**
+     * 토큰 상태 조회
+     */
     public QueueStatusResponse activateToken(String token, Long userId, Long performanceId, Long scheduleId) {
         QueueToken queueToken = queueTokenRepository.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "토큰을 찾을 수 없습니다"));
@@ -362,17 +366,25 @@ public class QueueService {
         queueToken.setPositionInQueue(position.intValue());
         queueToken.setEstimatedWaitTimeMinutes(estimatedMinutes);
 
-//        if (position > 1) {
-//            queueTokenRepository.save(queueToken);
-//            throw new ResponseStatusException(HttpStatus.CONFLICT, "아직 활성화 차례가 아닙니다");
-//        }
-
         String activeTokensKey = ACTIVE_TOKENS_KEY_PREFIX + performanceId;
 
         synchronized (queueLock) {
-            // ID로 조회 (가장 안전)
-            Long dbActiveCount = queueTokenRepository.countActiveTokensByPerformanceId(performanceId);
+            // 1) 락 안에서 "현재" 순번 재계산 (진짜 1등인지 확인)
+            Long currentPosition = queueTokenRepository.findPositionInQueue(
+                    queueToken.getPerformance(), queueToken.getIssuedAt()
+            ) + 1;
 
+            // 2) 맨 앞이 아니면 거절 (FIFO 보장)
+            if (currentPosition > 1) {
+                queueTokenRepository.save(queueToken);
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "아직 차례가 아닙니다. 현재 대기번호: " + currentPosition
+                );
+            }
+            // 3) 활성 슬롯 확인(동기화 포함)
+            // ID로 조회
+            Long dbActiveCount = queueTokenRepository.countActiveTokensByPerformanceId(performanceId);
             String redisCountStr = redisTemplate.opsForValue().get(activeTokensKey);
             int redisActiveCount = redisCountStr != null ? Integer.parseInt(redisCountStr) : 0;
 
@@ -466,7 +478,7 @@ public class QueueService {
             return false;
         }
 
-        // ✅ 새로 추가된 공연 ID 검증 - 핵심 보안 수정!
+        // 공연 ID 검증
         if (!queueToken.getPerformance().getPerformanceId().equals(performanceId)) {
             log.warn("토큰-공연 불일치 - 토큰 공연: {}, 요청 공연: {}",
                     queueToken.getPerformance().getPerformanceId(), performanceId);
